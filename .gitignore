@@ -1,0 +1,31 @@
+node_modules/
+dist/
+build/
+.venv/
+__pycache__/
+*.pyc
+
+# Runtime data
+backend/data/
+backend/storage/
+backend/.env
+backend/*.log
+backend/*.pid
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Local delivery docs and temporary files
+*.docx
+docs/source/
+docs/当前进度.md
+build-docs.cmd
+scripts/build-docs.ps1
+1.png
+132
+*.zip
+~$*.docx

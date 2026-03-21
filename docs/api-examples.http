@@ -1,0 +1,64 @@
+### Login
+POST http://127.0.0.1:8000/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+### Save image provider settings
+POST http://127.0.0.1:8000/api/settings/providers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "llm_provider": "local_demo",
+  "image_provider": "generic_http",
+  "cutout_provider": "local_demo",
+  "image_api_url": "https://your-provider.example.com/v1/images/generate",
+  "image_model": "your-image-model",
+  "image_timeout_seconds": 60,
+  "image_api_key_header": "Authorization"
+}
+
+### Save image API key
+POST http://127.0.0.1:8000/api/settings/api-keys
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "image_api_key": "replace-with-real-key"
+}
+
+### Test image provider
+POST http://127.0.0.1:8000/api/settings/providers/test-image
+Authorization: Bearer {{token}}
+
+### Create project
+POST http://127.0.0.1:8000/api/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Demo Project",
+  "page_type": "main_image",
+  "platform": "taobao",
+  "product_name": "广告材料铝材"
+}
+
+### Generate project
+POST http://127.0.0.1:8000/api/projects/{{projectId}}/generate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "message": "请做一版淘宝主图，突出耐腐蚀和支持定制，整体偏工业简洁。",
+  "guide_fields": {
+    "page_type": "main_image",
+    "platform": "taobao",
+    "product_name": "广告材料铝材",
+    "style_keywords": ["工业简洁", "金属质感"],
+    "selling_points": ["耐腐蚀", "支持定制"]
+  }
+}
