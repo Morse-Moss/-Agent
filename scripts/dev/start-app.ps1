@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$projectRoot = Join-Path $PSScriptRoot ".."
+$projectRoot = Join-Path $PSScriptRoot "..\.."
 $frontendDir = Join-Path $projectRoot "frontend"
 $backendCmd = Join-Path $projectRoot "start-backend.cmd"
 

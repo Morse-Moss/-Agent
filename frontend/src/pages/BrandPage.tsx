@@ -50,7 +50,7 @@ export function BrandPage(): JSX.Element {
                   .filter(Boolean),
               });
               await queryClient.invalidateQueries({ queryKey: ["brand-profile"] });
-              message.success("品牌资料已保存。");
+              message.success("品牌资料已保存");
             } catch (error) {
               message.error(error instanceof Error ? error.message : "保存失败");
             }
@@ -60,13 +60,13 @@ export function BrandPage(): JSX.Element {
             <Input size="large" />
           </Form.Item>
           <Form.Item label="品牌描述" name="description" rules={[{ required: true, message: "请输入品牌描述" }]}>
-            <Input.TextArea rows={6} placeholder="描述品牌定位、产品特点、目标客群和视觉调性。" />
+            <Input.TextArea rows={6} placeholder="请填写品牌定位、产品特点、目标客户和表达偏好。" />
           </Form.Item>
           <Form.Item label="风格总结" name="style_summary">
-            <Input.TextArea rows={4} placeholder="例如：工业高级感、版式克制、重材质纹理、强调定制能力。" />
+            <Input.TextArea rows={4} placeholder="例如：工业高级感、金属质感明确、画面简洁、强调材料品质与定制能力。" />
           </Form.Item>
           <Form.Item label="推荐关键词" name="recommended_keywords">
-            <Input.TextArea rows={3} placeholder="用逗号或换行分隔，例如：金属质感，工业简洁，耐腐蚀，支持定制" />
+            <Input.TextArea rows={3} placeholder="多个关键词请用逗号分隔，例如：工业简洁，金属质感，耐腐蚀，支持定制" />
           </Form.Item>
           <Space wrap>
             <Button
@@ -74,7 +74,7 @@ export function BrandPage(): JSX.Element {
                 try {
                   const description = String(form.getFieldValue("description") ?? "");
                   if (!description.trim()) {
-                    message.warning("请先填写品牌描述，再自动总结。");
+                    message.warning("请先填写品牌描述，再生成风格总结。");
                     return;
                   }
                   const summary = await summarizeBrand({ description });
@@ -88,7 +88,7 @@ export function BrandPage(): JSX.Element {
                 }
               }}
             >
-              自动总结
+              生成总结
             </Button>
             <Button type="primary" htmlType="submit">
               保存品牌资料

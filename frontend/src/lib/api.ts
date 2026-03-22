@@ -6,6 +6,7 @@ import type {
   GenerationResult,
   ProjectDetail,
   ProjectListItem,
+  ProviderPresets,
   ProviderSettings,
   ProviderTestResult,
 } from "./types";
@@ -165,6 +166,37 @@ export function saveProviderSettings(payload: Record<string, unknown>): Promise<
   return request<ProviderSettings>("/settings/providers", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function getProviderPresets(): Promise<ProviderPresets> {
+  return request<ProviderPresets>("/settings/provider-presets");
+}
+
+export function saveProviderPreset(payload: Record<string, unknown>): Promise<ProviderPresets> {
+  return request<ProviderPresets>("/settings/provider-presets", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function applyProviderPreset(payload: Record<string, unknown>): Promise<ProviderSettings> {
+  return request<ProviderSettings>("/settings/provider-presets/apply", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProviderPreset(payload: Record<string, unknown>): Promise<ProviderPresets> {
+  return request<ProviderPresets>("/settings/provider-presets/delete", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function testLLMProvider(): Promise<ProviderTestResult> {
+  return request<ProviderTestResult>("/settings/providers/test-llm", {
+    method: "POST",
   });
 }
 

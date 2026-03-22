@@ -1,5 +1,5 @@
 param(
-    [string]$OutputDir = (Join-Path $PSScriptRoot "..\demo-assets")
+    [string]$OutputDir = (Join-Path $PSScriptRoot "..\..\demo-assets")
 )
 
 Set-StrictMode -Version Latest

@@ -13,6 +13,7 @@ from .image_pipeline import ImagePipeline
 from .model_gateway import DemoBrandContext, ModelGateway
 
 PREVIEWABLE_ASSET_TYPES = {"final_export", "composite", "background", "cutout", "source"}
+BROKEN_TEXT_TOKENS = ("锟", "\ufffd", "鏈", "宸", "褰撳", "娣", "闂")
 
 
 class ProjectService:
@@ -89,12 +90,23 @@ class ProjectService:
     ) -> GenerationResult:
         project = self._load_project(project_id, current_user)
         brand = self._get_brand_profile(payload.get("brand_profile_id") or project.brand_profile_id)
-        user_message = self._add_chat_message(project.id, "user", payload["message"], parent_version.id if parent_version else None)
+
+        user_message = self._add_chat_message(
+            project.id,
+            "user",
+            payload["message"],
+            parent_version.id if parent_version else None,
+        )
         self.db.flush()
 
         guide_fields = payload.get("guide_fields") or {}
-        previous_snapshot = parent_version.input_snapshot_json if parent_version else (project.versions[-1].input_snapshot_json if project.versions else {})
+        previous_snapshot = (
+            parent_version.input_snapshot_json
+            if parent_version
+            else (project.versions[-1].input_snapshot_json if project.versions else {})
+        )
         user_turns = self._count_user_turns(project.id)
+
         plan = self.gateway.plan_generation(
             message=payload["message"],
             guide_fields=guide_fields,
@@ -108,9 +120,18 @@ class ProjectService:
             user_turns=user_turns,
         )
 
-        if plan["should_clarify"] and not force_direct:
+        if self._message_requests_generation(
+            payload["message"],
+            has_previous_version=bool(parent_version or project.versions),
+        ):
+            plan["should_clarify"] = False
+            plan["questions"] = []
+            plan["should_generate"] = True
+
+        if plan.get("should_clarify") and not force_direct:
+            questions = list(plan.get("questions", []))[:2]
             content = "为了更贴近你的创作目标，我还需要确认：\n" + "\n".join(
-                f"{index + 1}. {question}" for index, question in enumerate(plan["questions"])
+                f"{index + 1}. {question}" for index, question in enumerate(questions)
             )
             assistant_message = self._add_chat_message(project.id, "assistant", content, None)
             self.db.commit()
@@ -120,7 +141,22 @@ class ProjectService:
                 project=project_detail,
                 assistant_message=assistant_message,
                 version=None,
-                questions=plan["questions"],
+                questions=questions,
+            )
+
+        if not plan.get("should_generate") and not force_direct:
+            assistant_text = str(plan.get("assistant_reply") or "").strip() or (
+                "我先继续和你确认方向。等你回复“开始生成”后，再进入出图。"
+            )
+            assistant_message = self._add_chat_message(project.id, "assistant", assistant_text, None)
+            self.db.commit()
+            project_detail = self.get_project_detail(project.id, current_user)
+            return GenerationResult(
+                mode="chat",
+                project=project_detail,
+                assistant_message=assistant_message,
+                version=None,
+                questions=[],
             )
 
         snapshot = dict(plan["snapshot"])
@@ -136,7 +172,11 @@ class ProjectService:
             snapshot=snapshot,
             parent_version=parent_version,
         )
-        assistant_text = f"已生成第 {version.version_no} 版主图，你可以继续告诉我想调整的主体、卖点、背景或版式。"
+
+        assistant_text = (
+            f"已生成第 {version.version_no} 版主图。\n"
+            "如果你还想继续修改，可以直接告诉我想调整的主体、卖点、背景或版式。"
+        )
         assistant_message = self._add_chat_message(project.id, "assistant", assistant_text, version.id)
         user_message.version_id = version.id
         self._refresh_project_status(project)
@@ -152,19 +192,42 @@ class ProjectService:
             questions=[],
         )
 
-    def regenerate(self, *, project_id: int, version_id: int, payload: dict[str, Any], current_user: User) -> GenerationResult:
+    def regenerate(
+        self,
+        *,
+        project_id: int,
+        version_id: int,
+        payload: dict[str, Any],
+        current_user: User,
+    ) -> GenerationResult:
         project = self._load_project(project_id, current_user)
         version = self._get_version(project, version_id)
-        return self.generate(project_id=project.id, payload=payload, current_user=current_user, parent_version=version, force_direct=True)
+        return self.generate(
+            project_id=project.id,
+            payload=payload,
+            current_user=current_user,
+            parent_version=version,
+            force_direct=False,
+        )
 
-    def review(self, *, project_id: int, version_id: int, action: str, comment: str, current_user: User) -> ProjectDetail:
+    def review(
+        self,
+        *,
+        project_id: int,
+        version_id: int,
+        action: str,
+        comment: str,
+        current_user: User,
+    ) -> ProjectDetail:
         project = self._load_project(project_id, current_user)
         version = self._get_version(project, version_id)
         version.review_status = action
         version.review_comment = comment
+
         review_label = "已通过" if action == "approved" else "已驳回"
         review_comment = comment or "暂无补充意见。"
-        self._add_chat_message(project.id, "assistant", f"审核结果：{review_label}。{review_comment}", version.id)
+        self._add_chat_message(project.id, "assistant", f"审核结果：{review_label}\n{review_comment}", version.id)
+
         self._refresh_project_status(project)
         self.db.commit()
         return self.get_project_detail(project.id, current_user)
@@ -174,20 +237,39 @@ class ProjectService:
         version = self._get_version(project, version_id)
         if version.review_status != "approved":
             raise ValueError("只有通过审核的版本才能定稿。")
+
         for item in project.versions:
             item.is_final = item.id == version.id
         project.final_version_id = version.id
-        self._add_chat_message(project.id, "assistant", f"第 {version.version_no} 版已定稿归档，可继续基于定稿版本派生新版本。", version.id)
+        self._add_chat_message(
+            project.id,
+            "assistant",
+            f"第 {version.version_no} 版已定稿归档，可继续基于定稿版本派生新版本。",
+            version.id,
+        )
         self._refresh_project_status(project)
         self.db.commit()
         return self.get_project_detail(project.id, current_user)
 
-    def derive(self, *, project_id: int, version_id: int, payload: dict[str, Any], current_user: User) -> GenerationResult:
+    def derive(
+        self,
+        *,
+        project_id: int,
+        version_id: int,
+        payload: dict[str, Any],
+        current_user: User,
+    ) -> GenerationResult:
         project = self._load_project(project_id, current_user)
         version = self._get_version(project, version_id)
         if not version.is_final:
             raise ValueError("只有定稿版本才能继续派生。")
-        return self.generate(project_id=project.id, payload=payload, current_user=current_user, parent_version=version, force_direct=True)
+        return self.generate(
+            project_id=project.id,
+            payload=payload,
+            current_user=current_user,
+            parent_version=version,
+            force_direct=True,
+        )
 
     def _create_version(
         self,
@@ -237,12 +319,11 @@ class ProjectService:
             project.status = "finalized"
             return
         if latest_version:
-            mapping = {
+            project.status = {
                 "unreviewed": "unreviewed",
                 "approved": "approved",
                 "rejected": "rejected",
-            }
-            project.status = mapping.get(latest_version.review_status, "unreviewed")
+            }.get(latest_version.review_status, "unreviewed")
             return
         project.status = "unreviewed"
 
@@ -257,6 +338,7 @@ class ProjectService:
         )
         if current_user.role != "admin":
             statement = statement.where(Project.created_by == current_user.id)
+
         project = self.db.scalar(statement)
         if not project:
             raise ValueError("未找到对应作品。")
@@ -273,6 +355,7 @@ class ProjectService:
             brand = self.db.scalar(select(BrandProfile).where(BrandProfile.id == brand_profile_id))
             if brand:
                 return brand
+
         brand = self.db.scalar(select(BrandProfile).order_by(BrandProfile.id.asc()))
         if not brand:
             raise ValueError("未找到品牌资料。")
@@ -283,7 +366,10 @@ class ProjectService:
         return DemoBrandContext(
             name=self._safe_text(brand.name, settings.default_brand_name),
             description=self._safe_text(brand.description, settings.default_brand_description),
-            style_summary=self._safe_text(brand.style_summary, "工业感、简洁排版、突出材质纹理和定制能力。"),
+            style_summary=self._safe_text(
+                brand.style_summary,
+                "品牌整体偏工业高级感，强调材料表现、稳定供货与定制能力。",
+            ),
             recommended_keywords=self._safe_keywords(brand.recommended_keywords or [], default_keywords),
         )
 
@@ -346,7 +432,6 @@ class ProjectService:
                 if asset.file_path:
                     paths.add(asset.file_path)
 
-        for version in project.versions:
             source_path = version.input_snapshot_json.get("source_image_path")
             if isinstance(source_path, str) and source_path.strip():
                 paths.add(source_path)
@@ -360,7 +445,6 @@ class ProjectService:
             if absolute_path.exists() and absolute_path.is_file():
                 absolute_path.unlink()
         except OSError:
-            # Deletion failure should not block project removal.
             return
 
     def _add_chat_message(self, project_id: int, sender_type: str, content: str, version_id: int | None) -> ChatMessage:
@@ -377,6 +461,9 @@ class ProjectService:
         )
         return len(messages)
 
+    def _message_requests_generation(self, message: str, *, has_previous_version: bool) -> bool:
+        return self.gateway.message_requests_generation(message, has_previous_version=has_previous_version)
+
     def _safe_text(self, value: str | None, default: str) -> str:
         text = (value or "").strip()
         if not text or self._looks_broken_text(text):
@@ -388,9 +475,11 @@ class ProjectService:
         return cleaned or default
 
     def _looks_broken_text(self, value: str) -> bool:
-        if value.count("?") >= 2:
+        text = value.strip()
+        if not text:
             return True
-        if "\ufffd" in value:
+        if text.count("?") >= 2:
             return True
-        suspicious_tokens = ("锛", "銆", "鈥", "锟", "鏄", "鐗", "鍝", "浣", "璇", "缁", "姝")
-        return sum(token in value for token in suspicious_tokens) >= 2
+        if "\ufffd" in text:
+            return True
+        return sum(token in text for token in BROKEN_TEXT_TOKENS) >= 2

@@ -4,7 +4,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ...db import get_db
-from ...schemas import ApiKeysRead, ApiKeysUpsertRequest, ProviderSettingsRead, ProviderSettingsUpsertRequest, ProviderTestResponse
+from ...schemas import (
+    ApiKeysRead,
+    ApiKeysUpsertRequest,
+    ProviderPresetApplyRequest,
+    ProviderPresetSaveRequest,
+    ProviderPresetsRead,
+    ProviderSettingsRead,
+    ProviderSettingsUpsertRequest,
+    ProviderTestResponse,
+)
 from ...services.model_gateway import ModelGateway
 from ...services.storage import StorageService
 from ...services.system_settings import PROVIDER_KEYS, SECRET_KEYS, SystemSettingsService
@@ -19,7 +28,7 @@ def get_api_keys(
     _current_user=Depends(get_current_user),
 ) -> ApiKeysRead:
     service = SystemSettingsService(db)
-    response = {}
+    response: dict[str, str | None] = {}
     for field_name in SECRET_KEYS:
         masked, source = service.read_secret_masked(field_name)
         response[field_name] = masked
@@ -49,15 +58,15 @@ def get_provider_settings(
     _current_user=Depends(get_current_user),
 ) -> ProviderSettingsRead:
     service = SystemSettingsService(db)
-    response = {}
+    response: dict[str, str | int | None] = {}
     for field_name in PROVIDER_KEYS:
         value, source = service.read_provider_value(field_name)
-        if field_name == "image_timeout_seconds":
+        if field_name.endswith("_timeout_seconds"):
             try:
                 response[field_name] = int(value)
             except ValueError:
                 response[field_name] = 60
-        elif field_name == "image_api_url":
+        elif field_name.endswith("_api_url"):
             response[field_name] = value or None
         else:
             response[field_name] = value
@@ -75,11 +84,79 @@ def upsert_provider_settings(
     values = payload.model_dump()
     for field_name in PROVIDER_KEYS:
         value = values[field_name]
-        if value is None:
-            value = ""
-        service.write_provider_value(field_name, str(value))
+        service.write_provider_value(field_name, "" if value is None else str(value))
     db.commit()
     return get_provider_settings(db)
+
+
+@router.get("/provider-presets", response_model=ProviderPresetsRead)
+def get_provider_presets(
+    db: Session = Depends(get_db),
+    _current_user=Depends(get_current_user),
+) -> ProviderPresetsRead:
+    service = SystemSettingsService(db)
+    return ProviderPresetsRead(**service.list_provider_presets())
+
+
+@router.post("/provider-presets", response_model=ProviderPresetsRead)
+def save_provider_preset(
+    payload: ProviderPresetSaveRequest,
+    db: Session = Depends(get_db),
+    _current_user=Depends(get_current_user),
+) -> ProviderPresetsRead:
+    service = SystemSettingsService(db)
+    presets = service.save_provider_preset(
+        scope=payload.scope,
+        preset_name=payload.preset_name,
+        provider=payload.provider,
+        api_url=payload.api_url,
+        model=payload.model,
+        timeout_seconds=payload.timeout_seconds,
+        api_key_header=payload.api_key_header,
+        api_key=payload.api_key,
+        include_api_key=payload.include_api_key,
+    )
+    db.commit()
+    return ProviderPresetsRead(**presets)
+
+
+@router.post("/provider-presets/apply", response_model=ProviderSettingsRead)
+def apply_provider_preset(
+    payload: ProviderPresetApplyRequest,
+    db: Session = Depends(get_db),
+    _current_user=Depends(get_current_user),
+) -> ProviderSettingsRead:
+    service = SystemSettingsService(db)
+    service.apply_provider_preset(scope=payload.scope, preset_name=payload.preset_name)
+    db.commit()
+    return get_provider_settings(db)
+
+
+@router.post("/provider-presets/delete", response_model=ProviderPresetsRead)
+def delete_provider_preset(
+    payload: ProviderPresetApplyRequest,
+    db: Session = Depends(get_db),
+    _current_user=Depends(get_current_user),
+) -> ProviderPresetsRead:
+    service = SystemSettingsService(db)
+    presets = service.delete_provider_preset(scope=payload.scope, preset_name=payload.preset_name)
+    db.commit()
+    return ProviderPresetsRead(**presets)
+
+
+@router.post("/providers/test-llm", response_model=ProviderTestResponse)
+def test_llm_provider(
+    db: Session = Depends(get_db),
+    _current_user=Depends(get_current_user),
+) -> ProviderTestResponse:
+    service = SystemSettingsService(db)
+    runtime_config = service.build_gateway_runtime_config()
+    gateway = ModelGateway(runtime_config=runtime_config)
+    try:
+        result = gateway.test_llm_provider()
+        return ProviderTestResponse(ok=True, provider=runtime_config.llm_provider, detail=result)
+    except Exception as exc:
+        return ProviderTestResponse(ok=False, provider=runtime_config.llm_provider, detail=str(exc))
 
 
 @router.post("/providers/test-image", response_model=ProviderTestResponse)
@@ -90,27 +167,46 @@ def test_image_provider(
     service = SystemSettingsService(db)
     runtime_config = service.build_gateway_runtime_config()
     gateway = ModelGateway(runtime_config=runtime_config)
+
     snapshot = {
         "product_name": "广告材料铝材",
         "brand_name": "铝域精选",
-        "style_keywords": ["工业简洁", "金属质感"],
+        "style_keywords": ["工业简洁", "高级质感"],
         "selling_points": ["耐腐蚀", "支持定制"],
         "page_type": "main_image",
+        "latest_user_message": "请生成一版淘宝商品主图，整体偏工业高级感和金属质感。",
     }
+
     provider_name = runtime_config.image_provider
     if provider_name == "local_demo":
-        return ProviderTestResponse(ok=True, provider=provider_name, detail="当前使用的是本地演示生图模式，系统会使用内置背景渲染作为兜底。")
+        return ProviderTestResponse(
+            ok=True,
+            provider=provider_name,
+            detail="当前使用的是本地演示生图模式，系统会返回本地渲染的占位图。",
+        )
+
     try:
         image = gateway.call_image_provider(snapshot, (1200, 1200))
         if image is None:
-            return ProviderTestResponse(ok=False, provider=provider_name, detail="生图 Provider 没有返回可用图片。")
+            return ProviderTestResponse(
+                ok=False,
+                provider=provider_name,
+                detail="图片 Provider 没有返回可用图片。",
+            )
+
         if image.size != (1200, 1200):
             resized = image.resize((1200, 1200))
             image.close()
             image = resized
+
         storage = StorageService()
         saved = storage.save_image(image, bucket="processed")
         image.close()
-        return ProviderTestResponse(ok=True, provider=provider_name, detail="生图 Provider 测试成功。", file_path=saved["file_path"])
+        return ProviderTestResponse(
+            ok=True,
+            provider=provider_name,
+            detail="图片 Provider 测试成功。",
+            file_path=saved["file_path"],
+        )
     except Exception as exc:
         return ProviderTestResponse(ok=False, provider=provider_name, detail=str(exc))

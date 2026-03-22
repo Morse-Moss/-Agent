@@ -1,2 +1,2 @@
 @echo off
-powershell.exe -ExecutionPolicy Bypass -File "%~dp0scripts\start-frontend.ps1" %*
+powershell.exe -ExecutionPolicy Bypass -File "%~dp0scripts\dev\start-frontend.ps1" %*

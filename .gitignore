@@ -21,11 +21,13 @@ frontend/vite.config.d.ts
 
 # Local delivery docs and temporary files
 *.docx
-docs/source/
-docs/当前进度.md
+docs/internal/source/
+docs/internal/当前进度.md
 build-docs.cmd
-scripts/build-docs.ps1
+scripts/docs/build-docs.ps1
 1.png
-132
+tmp/
 *.zip
 ~$*.docx
+transfer-package/
+backups/

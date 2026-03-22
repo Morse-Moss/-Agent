@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$backendCmd = Join-Path $PSScriptRoot "..\start-backend.cmd"
+$backendCmd = Join-Path $PSScriptRoot "..\..\start-backend.cmd"
 $arguments = @("--port", $Port.ToString(), "--bind-host", $BindHost)
 
 if ($ServeFrontend) {

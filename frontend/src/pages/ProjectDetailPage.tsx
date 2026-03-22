@@ -23,6 +23,18 @@ const dialogHintMap: Record<Exclude<ActionDialogMode, null>, string> = {
   derive: "请输入基于当前定稿版本继续延展的新方向。",
 };
 
+function getVersionRunInfo(version: Version): { llm: string; image: string } {
+  const llmProvider = String(version.input_snapshot_json["llm_provider_used"] ?? "").trim();
+  const llmModel = String(version.input_snapshot_json["llm_model_used"] ?? "").trim();
+  const imageProvider = String(version.input_snapshot_json["image_provider_used"] ?? "").trim();
+  const imageModel = String(version.input_snapshot_json["image_model_used"] ?? "").trim();
+
+  return {
+    llm: llmProvider ? `${llmProvider}${llmModel ? ` / ${llmModel}` : ""}` : "未记录",
+    image: imageProvider ? `${imageProvider}${imageModel ? ` / ${imageModel}` : ""}` : "未记录",
+  };
+}
+
 export function ProjectDetailPage(): JSX.Element {
   const navigate = useNavigate();
   const { projectId } = useParams();
@@ -123,74 +135,83 @@ export function ProjectDetailPage(): JSX.Element {
             {project.versions
               .slice()
               .reverse()
-              .map((version) => (
-                <Card
-                  key={version.id}
-                  className="surface-card"
-                  title={
-                    <Space wrap>
-                      <Typography.Text strong>版本 V{version.version_no}</Typography.Text>
-                      <StatusTag status={version.is_final ? "finalized" : version.review_status} />
+              .map((version) => {
+                const runInfo = getVersionRunInfo(version);
+
+                return (
+                  <Card
+                    key={version.id}
+                    className="surface-card"
+                    title={
+                      <Space wrap>
+                        <Typography.Text strong>版本 V{version.version_no}</Typography.Text>
+                        <StatusTag status={version.is_final ? "finalized" : version.review_status} />
+                      </Space>
+                    }
+                    extra={version.id === project.latest_version_id ? <Typography.Text type="secondary">当前最新</Typography.Text> : null}
+                  >
+                    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                      <Space wrap>
+                        <Typography.Text type="secondary">LLM：{runInfo.llm}</Typography.Text>
+                        <Typography.Text type="secondary">生图：{runInfo.image}</Typography.Text>
+                      </Space>
+
+                      <div className="project-meta-list">
+                        <div className="project-meta-item">
+                          <span className="project-meta-label">标题</span>
+                          <span>{version.title_text || "未生成标题"}</span>
+                        </div>
+                        <div className="project-meta-item">
+                          <span className="project-meta-label">创作指令</span>
+                          <span>{version.prompt_text || "暂无创作指令"}</span>
+                        </div>
+                        <div className="project-meta-item">
+                          <span className="project-meta-label">父版本</span>
+                          <span>{version.parent_version_id ? `版本 ID ${version.parent_version_id}` : "首版"}</span>
+                        </div>
+                        <div className="project-meta-item">
+                          <span className="project-meta-label">创建时间</span>
+                          <span>{new Date(version.created_at).toLocaleString("zh-CN")}</span>
+                        </div>
+                      </div>
+
+                      {version.review_comment ? <Typography.Text type="secondary">审核意见：{version.review_comment}</Typography.Text> : null}
+                      <AssetPreview assets={version.assets} />
+
+                      <Space wrap>
+                        <Button
+                          type={version.id === project.latest_version_id ? "primary" : "default"}
+                          onClick={() => navigate(`/create?projectId=${project.id}&versionId=${version.id}`)}
+                        >
+                          回到工作台继续修改
+                        </Button>
+                        <Button onClick={() => openActionDialog("approve", version)}>通过审核</Button>
+                        <Button danger onClick={() => openActionDialog("reject", version)}>
+                          驳回
+                        </Button>
+                        <Button
+                          type="primary"
+                          disabled={version.review_status !== "approved"}
+                          onClick={async () => {
+                            try {
+                              await finalizeVersion(project.id, version.id);
+                              await refreshProject();
+                              message.success("版本已定稿。");
+                            } catch (error) {
+                              message.error(error instanceof Error ? error.message : "定稿失败");
+                            }
+                          }}
+                        >
+                          定稿归档
+                        </Button>
+                        <Button disabled={!version.is_final} onClick={() => openActionDialog("derive", version)}>
+                          派生新版本
+                        </Button>
+                      </Space>
                     </Space>
-                  }
-                  extra={version.id === project.latest_version_id ? <Typography.Text type="secondary">当前最新</Typography.Text> : null}
-                >
-                  <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                    <div className="project-meta-list">
-                      <div className="project-meta-item">
-                        <span className="project-meta-label">标题</span>
-                        <span>{version.title_text || "未生成标题"}</span>
-                      </div>
-                      <div className="project-meta-item">
-                        <span className="project-meta-label">创作指令</span>
-                        <span>{version.prompt_text || "暂无创作指令"}</span>
-                      </div>
-                      <div className="project-meta-item">
-                        <span className="project-meta-label">父版本</span>
-                        <span>{version.parent_version_id ? `版本 ID ${version.parent_version_id}` : "首版"}</span>
-                      </div>
-                      <div className="project-meta-item">
-                        <span className="project-meta-label">创建时间</span>
-                        <span>{new Date(version.created_at).toLocaleString("zh-CN")}</span>
-                      </div>
-                    </div>
-                    {version.review_comment ? (
-                      <Typography.Text type="secondary">审核意见：{version.review_comment}</Typography.Text>
-                    ) : null}
-                    <AssetPreview assets={version.assets} />
-                    <Space wrap>
-                      <Button
-                        type={version.id === project.latest_version_id ? "primary" : "default"}
-                        onClick={() => navigate(`/create?projectId=${project.id}&versionId=${version.id}`)}
-                      >
-                        回到工作台继续修改
-                      </Button>
-                      <Button onClick={() => openActionDialog("approve", version)}>通过审核</Button>
-                      <Button danger onClick={() => openActionDialog("reject", version)}>
-                        驳回
-                      </Button>
-                      <Button
-                        type="primary"
-                        disabled={version.review_status !== "approved"}
-                        onClick={async () => {
-                          try {
-                            await finalizeVersion(project.id, version.id);
-                            await refreshProject();
-                            message.success("版本已定稿。");
-                          } catch (error) {
-                            message.error(error instanceof Error ? error.message : "定稿失败");
-                          }
-                        }}
-                      >
-                        定稿归档
-                      </Button>
-                      <Button disabled={!version.is_final} onClick={() => openActionDialog("derive", version)}>
-                        派生新版本
-                      </Button>
-                    </Space>
-                  </Space>
-                </Card>
-              ))}
+                  </Card>
+                );
+              })}
 
             <Button
               onClick={() =>
@@ -203,11 +224,7 @@ export function ProjectDetailPage(): JSX.Element {
         </div>
       ) : (
         <Card className="surface-card">
-          {projectQuery.isLoading ? (
-            <Typography.Text>正在加载项目详情...</Typography.Text>
-          ) : (
-            <Empty description="没有找到该项目。" />
-          )}
+          {projectQuery.isLoading ? <Typography.Text>正在加载项目详情...</Typography.Text> : <Empty description="没有找到该项目。" />}
         </Card>
       )}
 

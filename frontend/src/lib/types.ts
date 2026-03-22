@@ -89,19 +89,43 @@ export interface ApiKeys {
 
 export interface ProviderSettings {
   llm_provider: string;
+  llm_api_url: string | null;
+  llm_model: string | null;
+  llm_timeout_seconds: number;
+  llm_api_key_header: string;
   image_provider: string;
-  cutout_provider: string;
   image_api_url: string | null;
   image_model: string | null;
   image_timeout_seconds: number;
   image_api_key_header: string;
+  cutout_provider: string;
   llm_provider_source: "env" | "db" | "default" | "unset";
+  llm_api_url_source: "env" | "db" | "default" | "unset";
+  llm_model_source: "env" | "db" | "default" | "unset";
+  llm_timeout_seconds_source: "env" | "db" | "default" | "unset";
+  llm_api_key_header_source: "env" | "db" | "default" | "unset";
   image_provider_source: "env" | "db" | "default" | "unset";
-  cutout_provider_source: "env" | "db" | "default" | "unset";
   image_api_url_source: "env" | "db" | "default" | "unset";
   image_model_source: "env" | "db" | "default" | "unset";
   image_timeout_seconds_source: "env" | "db" | "default" | "unset";
   image_api_key_header_source: "env" | "db" | "default" | "unset";
+  cutout_provider_source: "env" | "db" | "default" | "unset";
+}
+
+export interface ProviderPreset {
+  preset_name: string;
+  scope: "llm" | "image";
+  provider: string;
+  api_url: string | null;
+  model: string | null;
+  timeout_seconds: number;
+  api_key_header: string;
+  has_api_key: boolean;
+}
+
+export interface ProviderPresets {
+  llm_presets: ProviderPreset[];
+  image_presets: ProviderPreset[];
 }
 
 export interface ProviderTestResult {
@@ -112,7 +136,7 @@ export interface ProviderTestResult {
 }
 
 export interface GenerationResult {
-  mode: "clarify" | "generated";
+  mode: "clarify" | "chat" | "generated";
   project: ProjectDetail;
   assistant_message: ChatMessage;
   version: Version | null;

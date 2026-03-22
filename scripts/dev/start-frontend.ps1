@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-$frontendDir = Join-Path $PSScriptRoot "..\frontend"
+$frontendDir = Join-Path $PSScriptRoot "..\..\frontend"
 
 Push-Location $frontendDir
 try {

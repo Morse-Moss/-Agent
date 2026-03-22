@@ -4,20 +4,20 @@
 
 ## 建议保留并上传的文档
 
-- [使用说明](使用说明.md)
+- [使用说明](guides/使用说明.md)
   - 适合快速了解系统怎么使用、页面怎么操作。
-- [接入生图 API 说明](接入生图API说明.md)
+- [接入生图 API 说明](guides/接入生图API说明.md)
   - 适合配置外部图片 Provider。
-- [部署与迁移说明](部署与迁移说明.md)
+- [部署与迁移说明](guides/部署与迁移说明.md)
   - 适合本地迁移、单入口运行和后续云端部署准备。
-- [接口示例](api-examples.http)
+- [接口示例](guides/api-examples.http)
   - 适合本地调试和接口验证。
 
 ## 建议本地保留、不上传 GitHub 的内容
 
-- 根目录下的 `.docx` 成品文档
-- `docs/source/` 中的内部方案源稿
-- 阶段性过程记录，例如 `docs/当前进度.md`
+- `docs/deliverables/` 下的 `.docx` 成品文档
+- `docs/internal/source/` 中的内部方案源稿
+- 阶段性过程记录，例如 `docs/internal/当前进度.md`
 - 本地调试截图、临时文件、锁文件
 
 ## 原则

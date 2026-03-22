@@ -2,7 +2,7 @@ param(
     [string]$BaseUrl = "http://127.0.0.1:8000",
     [string]$Username = "admin",
     [string]$Password = "admin123",
-    [string]$SampleImagePath = (Join-Path $PSScriptRoot "..\demo-assets\sample-white-product.png")
+    [string]$SampleImagePath = (Join-Path $PSScriptRoot "..\..\demo-assets\sample-white-product.png")
 )
 
 Set-StrictMode -Version Latest

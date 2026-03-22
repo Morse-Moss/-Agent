@@ -6,13 +6,9 @@ from sqlalchemy.orm import Session
 
 from ...db import get_db
 from ...models import BrandProfile
-from ...schemas import (
-    BrandProfileRead,
-    BrandProfileUpsertRequest,
-    BrandSummaryRequest,
-    BrandSummaryResponse,
-)
+from ...schemas import BrandProfileRead, BrandProfileUpsertRequest, BrandSummaryRequest, BrandSummaryResponse
 from ...services.model_gateway import ModelGateway
+from ...services.system_settings import SystemSettingsService
 from ..dependencies import get_current_user
 
 router = APIRouter(prefix="/brand", tags=["brand"])
@@ -49,8 +45,10 @@ def upsert_brand_profile(
 @router.post("/profile/summarize", response_model=BrandSummaryResponse)
 def summarize_brand_profile(
     payload: BrandSummaryRequest,
+    db: Session = Depends(get_db),
     _current_user=Depends(get_current_user),
 ) -> BrandSummaryResponse:
-    gateway = ModelGateway()
+    runtime_config = SystemSettingsService(db).build_gateway_runtime_config()
+    gateway = ModelGateway(runtime_config=runtime_config)
     result = gateway.summarize_brand(payload.description)
     return BrandSummaryResponse(**result)

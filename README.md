@@ -16,9 +16,9 @@
 
 - 前端：React + TypeScript + Vite + Ant Design
 - 后端：FastAPI + SQLAlchemy + Pillow
-- 默认数据库：SQLite
+- 默认数据库：MySQL
 - 文件存储：本地磁盘
-- 图片能力接入：统一 Model Gateway
+- 模型接入：统一 Model Gateway
 
 ## 快速启动
 
@@ -60,28 +60,31 @@ http://127.0.0.1:8000
 
 ## 数据与目录
 
-- 默认数据库文件：`backend/data/app.db`
+- 数据库连接：`backend/.env`
 - 图片与生成资产目录：`backend/storage/`
 - 前端项目：`frontend/`
 - 后端项目：`backend/`
-- 可公开文档：`docs/`
-- 启动与检查脚本：`scripts/`
+- 使用与部署文档：`docs/guides/`
+- 内部源稿与进度记录：`docs/internal/`
+- Word 交付文档：`docs/deliverables/`
+- 启动脚本入口：根目录 `*.cmd`
+- 分层脚本目录：`scripts/dev/`、`scripts/ops/`、`scripts/docs/`、`scripts/assets/`
 
 ## 文档导航
 
 建议优先阅读这些文档：
 
 - [文档导航](docs/README.md)
-- [使用说明](docs/使用说明.md)
-- [接入生图 API 说明](docs/接入生图API说明.md)
-- [部署与迁移说明](docs/部署与迁移说明.md)
-- [接口示例](docs/api-examples.http)
+- [使用说明](docs/guides/使用说明.md)
+- [接入生图 API 说明](docs/guides/接入生图API说明.md)
+- [部署与迁移说明](docs/guides/部署与迁移说明.md)
+- [接口示例](docs/guides/api-examples.http)
 
 ## 部署说明
 
-当前默认使用 `SQLite`。如果只是为了快速演示、局域网访问或云端初版上线，可以继续沿用 `SQLite`。
+当前默认使用 MySQL。如果只是为了快速演示或本地调试，也可以切换回 SQLite。
 
-如果后续需要切换到 `MySQL`：
+如果后续需要切换数据库：
 
 1. 安装 `backend/requirements-mysql.txt`
 2. 修改 `APP_DATABASE_URL`

@@ -36,7 +36,7 @@ export function AppShell(): JSX.Element {
           <div>
             <Typography.Text className="header-kicker">企业内部创意工作台</Typography.Text>
             <Typography.Title level={4} className="header-title">
-              广告材料视觉生产中枢
+              广告材料电商视觉生产中枢
             </Typography.Title>
           </div>
           <Button

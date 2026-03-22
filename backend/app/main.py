@@ -2,21 +2,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api.routes import auth, brand, projects, settings, upload
 from .core.config import settings as app_settings
-from .db import init_db
+from .db import check_database_connection, init_db
+from .schemas import ReadinessResponse
 
-app = FastAPI(title=app_settings.app_name, version="0.1.0")
+app = FastAPI(title=app_settings.app_name, version="0.4.0")
 
+allow_all_origins = app_settings.allowed_origins == ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"] if allow_all_origins else app_settings.allowed_origins,
+    allow_credentials=not allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -30,6 +32,24 @@ def on_startup() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/health/ready", response_model=ReadinessResponse)
+def readiness(response: Response) -> ReadinessResponse:
+    database_ok = check_database_connection()
+    storage_ok = app_settings.storage_dir.exists() and app_settings.storage_dir.is_dir()
+    frontend_ok = not app_settings.serve_frontend or _frontend_index_path().exists()
+    overall_ok = database_ok and storage_ok and frontend_ok
+
+    if not overall_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return ReadinessResponse(
+        status="ok" if overall_ok else "degraded",
+        database=database_ok,
+        storage=storage_ok,
+        frontend=frontend_ok,
+    )
 
 
 app.include_router(auth.router, prefix=app_settings.api_prefix)

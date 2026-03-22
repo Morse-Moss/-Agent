@@ -2,22 +2,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from .core.config import settings
 from .core.security import hash_password
-from .models import Base, BrandProfile, User
+from .db_migrations import SCHEMA_BASELINE, apply_schema_baseline
+from .models import BrandProfile, SystemSetting, User
+
+SCHEMA_VERSION = SCHEMA_BASELINE
+BROKEN_TEXT_TOKENS = ("锟", "\ufffd", "鏈", "宸", "褰撳", "娣", "闂")
 
 
-def _create_engine():
+def _create_engine(database_url: str) -> Engine:
     connect_args: dict[str, object] = {}
-    if settings.database_url.startswith("sqlite"):
+    engine_kwargs: dict[str, object] = {"future": True}
+    if database_url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
-    return create_engine(settings.database_url, future=True, connect_args=connect_args)
+    else:
+        engine_kwargs["pool_pre_ping"] = True
+    return create_engine(database_url, connect_args=connect_args, **engine_kwargs)
 
 
-engine = _create_engine()
+engine = _create_engine(settings.database_url)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, class_=Session)
 
 
@@ -34,19 +42,44 @@ def get_db():
         db.close()
 
 
+def create_schema(target_engine: Engine | None = None) -> None:
+    apply_schema_baseline(target_engine or engine)
+
+
+def check_database_connection(target_engine: Engine | None = None) -> bool:
+    current_engine = target_engine or engine
+    try:
+        with current_engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
 def init_db() -> None:
     ensure_directories()
-    Base.metadata.create_all(bind=engine)
+    create_schema()
     with SessionLocal() as session:
         _seed_default_user(session)
         _seed_default_brand(session)
+        _store_schema_version(session)
         session.commit()
+
+
+def _store_schema_version(session: Session) -> None:
+    setting = session.scalar(select(SystemSetting).where(SystemSetting.key_name == "APP_SCHEMA_VERSION"))
+    if not setting:
+        setting = SystemSetting(key_name="APP_SCHEMA_VERSION", key_value=SCHEMA_VERSION)
+        session.add(setting)
+        return
+    setting.key_value = SCHEMA_VERSION
 
 
 def _seed_default_user(session: Session) -> None:
     existing = session.scalar(select(User).where(User.username == settings.default_admin_username))
     if existing:
         return
+
     session.add(
         User(
             username=settings.default_admin_username,
@@ -57,7 +90,7 @@ def _seed_default_user(session: Session) -> None:
 
 
 def _seed_default_brand(session: Session) -> None:
-    default_style_summary = "工业感、简洁排版、突出材质纹理和定制能力。"
+    default_style_summary = "品牌整体偏工业高级感，强调材质表现、稳定供货与定制能力。"
     default_keywords = ["金属质感", "工业简洁", "耐腐蚀", "高强度", "支持定制"]
 
     existing = session.scalar(select(BrandProfile))
@@ -87,7 +120,6 @@ def _brand_profile_needs_repair(profile: BrandProfile) -> bool:
 def _looks_broken_text(value: str | None) -> bool:
     if value is None:
         return True
-
     text = str(value).strip()
     if not text:
         return True
@@ -95,6 +127,4 @@ def _looks_broken_text(value: str | None) -> bool:
         return True
     if "\ufffd" in text:
         return True
-
-    suspicious_tokens = ("锛", "銆", "鈥", "锟", "鏄", "鐗", "鍝", "浣", "璇", "缁", "姝")
-    return sum(token in text for token in suspicious_tokens) >= 2
+    return sum(token in text for token in BROKEN_TEXT_TOKENS) >= 2

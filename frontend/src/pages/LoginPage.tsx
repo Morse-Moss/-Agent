@@ -23,9 +23,7 @@ export function LoginPage(): JSX.Element {
         <Card className="login-card login-card-centered">
           <Typography.Text className="login-card-kicker">欢迎回来</Typography.Text>
           <Typography.Title level={3}>登录系统</Typography.Title>
-          <Typography.Paragraph type="secondary">
-            使用默认管理员账号即可进入工作台。
-          </Typography.Paragraph>
+          <Typography.Paragraph type="secondary">使用默认管理员账号即可进入工作台。</Typography.Paragraph>
           <Space wrap className="login-credentials">
             <Typography.Text>默认账号：admin</Typography.Text>
             <Typography.Text>默认密码：admin123</Typography.Text>
@@ -45,12 +43,12 @@ export function LoginPage(): JSX.Element {
             }}
           >
             <Form.Item label="用户名" name="username" rules={[{ required: true, message: "请输入用户名" }]}>
-              <Input size="large" />
+              <Input autoComplete="username" />
             </Form.Item>
             <Form.Item label="密码" name="password" rules={[{ required: true, message: "请输入密码" }]}>
-              <Input.Password size="large" />
+              <Input.Password autoComplete="current-password" />
             </Form.Item>
-            <Button type="primary" htmlType="submit" size="large" block>
+            <Button type="primary" htmlType="submit" block>
               进入工作台
             </Button>
           </Form>

@@ -158,29 +158,74 @@ class ApiKeysUpsertRequest(BaseModel):
 
 class ProviderSettingsRead(BaseModel):
     llm_provider: str
+    llm_api_url: str | None = None
+    llm_model: str | None = None
+    llm_timeout_seconds: int = 60
+    llm_api_key_header: str = "Authorization"
     image_provider: str
-    cutout_provider: str
     image_api_url: str | None = None
     image_model: str | None = None
     image_timeout_seconds: int = 60
     image_api_key_header: str = "Authorization"
+    cutout_provider: str
     llm_provider_source: Literal["env", "db", "default", "unset"] = "default"
+    llm_api_url_source: Literal["env", "db", "default", "unset"] = "unset"
+    llm_model_source: Literal["env", "db", "default", "unset"] = "unset"
+    llm_timeout_seconds_source: Literal["env", "db", "default", "unset"] = "default"
+    llm_api_key_header_source: Literal["env", "db", "default", "unset"] = "default"
     image_provider_source: Literal["env", "db", "default", "unset"] = "default"
-    cutout_provider_source: Literal["env", "db", "default", "unset"] = "default"
     image_api_url_source: Literal["env", "db", "default", "unset"] = "unset"
-    image_model_source: Literal["env", "db", "default", "unset"] = "default"
+    image_model_source: Literal["env", "db", "default", "unset"] = "unset"
     image_timeout_seconds_source: Literal["env", "db", "default", "unset"] = "default"
     image_api_key_header_source: Literal["env", "db", "default", "unset"] = "default"
+    cutout_provider_source: Literal["env", "db", "default", "unset"] = "default"
 
 
 class ProviderSettingsUpsertRequest(BaseModel):
     llm_provider: str
+    llm_api_url: str | None = None
+    llm_model: str | None = None
+    llm_timeout_seconds: int = 60
+    llm_api_key_header: str = "Authorization"
     image_provider: str
-    cutout_provider: str
     image_api_url: str | None = None
     image_model: str | None = None
     image_timeout_seconds: int = 60
     image_api_key_header: str = "Authorization"
+    cutout_provider: str
+
+
+class ProviderPresetRead(BaseModel):
+    preset_name: str
+    scope: Literal["llm", "image"]
+    provider: str
+    api_url: str | None = None
+    model: str | None = None
+    timeout_seconds: int = 60
+    api_key_header: str = "Authorization"
+    has_api_key: bool = False
+
+
+class ProviderPresetsRead(BaseModel):
+    llm_presets: list[ProviderPresetRead] = Field(default_factory=list)
+    image_presets: list[ProviderPresetRead] = Field(default_factory=list)
+
+
+class ProviderPresetSaveRequest(BaseModel):
+    preset_name: str
+    scope: Literal["llm", "image"]
+    provider: str
+    api_url: str | None = None
+    model: str | None = None
+    timeout_seconds: int = 60
+    api_key_header: str = "Authorization"
+    api_key: str | None = None
+    include_api_key: bool = True
+
+
+class ProviderPresetApplyRequest(BaseModel):
+    preset_name: str
+    scope: Literal["llm", "image"]
 
 
 class ProviderTestResponse(BaseModel):
@@ -223,8 +268,15 @@ class UploadImageResponse(BaseModel):
 
 
 class GenerationResult(BaseModel):
-    mode: Literal["clarify", "generated"]
+    mode: Literal["clarify", "chat", "generated"]
     project: ProjectDetail
     assistant_message: ChatMessageRead
     version: VersionRead | None = None
     questions: list[str] = Field(default_factory=list)
+
+
+class ReadinessResponse(BaseModel):
+    status: Literal["ok", "degraded"]
+    database: bool
+    storage: bool
+    frontend: bool

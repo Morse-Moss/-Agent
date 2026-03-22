@@ -22,6 +22,7 @@ class ImagePipeline:
     ) -> list[dict[str, Any]]:
         assets: list[dict[str, Any]] = []
         cutout_result: dict[str, Any] | None = None
+
         if source_image_path:
             source_width, source_height = self.storage.get_image_dimensions(source_image_path)
             assets.append(
@@ -73,13 +74,16 @@ class ImagePipeline:
 
         for index in range(height):
             ratio = index / max(height - 1, 1)
-            color = tuple(int(palette[0][channel] * (1 - ratio) + palette[1][channel] * ratio) for channel in range(3)) + (255,)
+            color = tuple(
+                int(palette[0][channel] * (1 - ratio) + palette[1][channel] * ratio)
+                for channel in range(3)
+            ) + (255,)
             draw.line([(0, index), (width, index)], fill=color)
 
         accent = palette[2] + (90,)
         draw.rounded_rectangle((60, 70, width - 60, height - 70), radius=48, outline=accent, width=3)
         draw.ellipse((width - 360, -90, width + 80, 350), fill=palette[3] + (80,))
-        draw.polygon([(0, height * 0.72), (width * 0.32, height), (0, height)], fill=palette[3] + (110,))
+        draw.polygon([(0, int(height * 0.72)), (int(width * 0.32), height), (0, height)], fill=palette[3] + (110,))
 
         result = self.storage.save_image(image, bucket="processed")
         image.close()
@@ -113,6 +117,7 @@ class ImagePipeline:
         provider_name = str(snapshot.get("image_provider_used", "")).strip().lower()
         has_cutout = bool(cutout_path)
         use_provider_visual_directly = (not has_cutout) and provider_name not in {"", "local_demo"}
+
         if use_provider_visual_directly:
             reframed = self._reframe_provider_visual(composite)
             composite.close()
@@ -176,9 +181,15 @@ class ImagePipeline:
         left = center_x - block_width // 2
         top = center_y - block_height // 2
         draw.rounded_rectangle((left, top, left + block_width, top + block_height), radius=38, fill=(228, 232, 237, 255))
-        draw.rounded_rectangle((left + 18, top + 18, left + block_width - 18, top + block_height - 18), radius=30, outline=(140, 148, 160, 255), width=4)
+        draw.rounded_rectangle(
+            (left + 18, top + 18, left + block_width - 18, top + block_height - 18),
+            radius=30,
+            outline=(140, 148, 160, 255),
+            width=4,
+        )
         accent_font = self._load_font(36, bold=True)
-        draw.text((left + 36, top + block_height // 2 - 20), snapshot.get("product_name", "铝材"), font=accent_font, fill=(40, 54, 70, 255))
+        product_name = snapshot.get("product_name", "广告铝材")
+        draw.text((left + 36, top + block_height // 2 - 20), product_name, font=accent_font, fill=(40, 54, 70, 255))
 
     def _draw_copy(self, image: Image.Image, snapshot: dict[str, Any]) -> None:
         draw = ImageDraw.Draw(image)
@@ -186,13 +197,12 @@ class ImagePipeline:
         title_font = self._load_font(54, bold=True)
         point_font = self._load_font(28, bold=False)
 
-        brand_name = snapshot.get("brand_name", "品牌名")
+        brand_name = snapshot.get("brand_name", "品牌精选")
         title_text = self._trim_text(snapshot.get("title_text", ""), max_chars=18)
         selling_points = snapshot.get("selling_points", [])[:2]
 
         draw.rounded_rectangle((60, 52, 280, 104), radius=24, fill=(255, 255, 255, 110))
         draw.text((92, 64), brand_name, font=brand_font, fill=(30, 44, 58, 255))
-
         draw.text((72, 130), title_text, font=title_font, fill=(255, 255, 255, 255))
 
         base_x = 76
@@ -218,7 +228,7 @@ class ImagePipeline:
                 (196, 171, 116),
                 (86, 102, 118),
             )
-        if "明亮" in joined or "科技" in joined:
+        if "清新" in joined or "科技" in joined:
             return (
                 (229, 239, 245),
                 (146, 186, 201),

@@ -25,8 +25,8 @@ export function AssetPreview({ assets }: { assets: Asset[] }): JSX.Element {
   return (
     <Card
       size="small"
-      cover={<Image alt={assetTypeLabelMap[finalAsset.asset_type] ?? finalAsset.asset_type} src={getAssetUrl(finalAsset.file_path)} preview />}
       className="asset-card"
+      cover={<Image alt={assetTypeLabelMap[finalAsset.asset_type] ?? finalAsset.asset_type} src={getAssetUrl(finalAsset.file_path)} preview />}
     >
       <Space wrap>
         {assets.map((asset) => (

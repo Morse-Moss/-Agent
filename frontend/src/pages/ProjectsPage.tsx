@@ -27,6 +27,7 @@ export function ProjectsPage(): JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const currentFilter = searchParams.get("status") ?? "";
+
   const query = useQuery({
     queryKey: ["projects", currentFilter],
     queryFn: () => listProjects(currentFilter || undefined),
@@ -36,7 +37,7 @@ export function ProjectsPage(): JSX.Element {
     mutationFn: deleteProject,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      message.success("作品已删除。");
+      message.success("作品已删除");
     },
     onError: (error) => {
       message.error(error instanceof Error ? error.message : "删除失败");
@@ -52,7 +53,7 @@ export function ProjectsPage(): JSX.Element {
             作品列表
           </Typography.Title>
           <Typography.Text type="secondary">
-            直接查看每个项目的当前封面、状态和最近版本，快速进入详情页继续审核、定稿或删除无效记录。
+            直接查看每个项目的当前封面、状态、最新版本和创建时间，便于快速筛选与回到详情页继续处理。
           </Typography.Text>
         </Space>
         <div style={{ marginTop: 18 }}>
@@ -80,7 +81,7 @@ export function ProjectsPage(): JSX.Element {
                   <img src={getAssetUrl(project.cover_asset_path)} alt={project.name} className="project-cover-image" />
                 ) : (
                   <div className="project-cover-placeholder">
-                    <span>{pageTypeLabelMap[project.page_type] ?? "待生成封面"}</span>
+                    <span>{pageTypeLabelMap[project.page_type] ?? "等待生成封面"}</span>
                   </div>
                 )}
               </div>
@@ -90,9 +91,7 @@ export function ProjectsPage(): JSX.Element {
                     <Typography.Title level={4} style={{ margin: 0 }}>
                       {project.name}
                     </Typography.Title>
-                    <Typography.Text type="secondary">
-                      {project.product_name || "待补充产品名称"}
-                    </Typography.Text>
+                    <Typography.Text type="secondary">{project.product_name || "待补充产品名称"}</Typography.Text>
                   </div>
                   <StatusTag status={project.status} />
                 </Space>
@@ -107,7 +106,7 @@ export function ProjectsPage(): JSX.Element {
                     <span>{platformLabelMap[project.platform] ?? project.platform}</span>
                   </div>
                   <div className="project-meta-item">
-                    <span className="project-meta-label">最近版本</span>
+                    <span className="project-meta-label">最新版本</span>
                     <span>{project.latest_version_no ? `V${project.latest_version_no}` : "暂无版本"}</span>
                   </div>
                   <div className="project-meta-item">
@@ -122,7 +121,7 @@ export function ProjectsPage(): JSX.Element {
                   </Link>
                   <Popconfirm
                     title="确认删除这个作品吗？"
-                    description="会一并删除项目下的版本记录和关联图片文件。"
+                    description="删除后会同时移除项目、版本记录、聊天消息和关联图片文件。"
                     okText="确认删除"
                     cancelText="取消"
                     okButtonProps={{ danger: true, loading: deleteMutation.isPending }}
@@ -142,7 +141,7 @@ export function ProjectsPage(): JSX.Element {
           {query.isLoading ? (
             <Typography.Text>正在加载作品列表...</Typography.Text>
           ) : (
-            <Empty description="还没有作品，先去创作工作台生成一版主图吧。" />
+            <Empty description="还没有作品，先去创作工作台生成第一版主图吧。" />
           )}
         </Card>
       )}
