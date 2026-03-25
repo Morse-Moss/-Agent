@@ -40,3 +40,11 @@ backend/test_storage/
 .claude/settings.local.json
 .claude/worktrees/
 .claude/plans/
+.mcp.json
+
+# Non-project files (reports, tools, docs generation)
+reports/
+tools/
+CLAUDE.md
+.claude/skills/
+.claude/settings.json
