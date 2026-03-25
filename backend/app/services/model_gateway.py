@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from urllib import error, request
 from PIL import Image
 
 from .system_settings import GatewayRuntimeConfig
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SELLING_POINTS = ["耐腐蚀", "高强度", "规格齐全", "支持定制"]
 DEFAULT_STYLE_KEYWORDS = ["工业简洁", "金属质感", "高级感"]
@@ -121,7 +124,7 @@ class ModelGateway:
             try:
                 return self._summarize_brand_with_llm(text)
             except Exception:
-                pass
+                logger.exception("LLM brand summarization failed, falling back to local")
         return self._summarize_brand_locally(text)
 
     def plan_generation(
@@ -159,7 +162,7 @@ class ModelGateway:
                     user_turns=user_turns,
                 )
             except Exception:
-                pass
+                logger.exception("LLM plan_generation failed, falling back to local")
 
         return self._plan_generation_locally(
             message=message,
@@ -217,6 +220,10 @@ class ModelGateway:
             return self._render_zhipu_image_background(snapshot, size)
         if provider_name == "generic_http":
             return self._render_generic_http_background(snapshot, size)
+        if provider_name == "fal_flux":
+            return self._render_fal_flux_background(snapshot, size)
+        if provider_name == "gpt_image":
+            return self._render_gpt_image_background(snapshot, size)
         raise RuntimeError(f"暂不支持的图片 Provider：{provider_name}")
 
     def _summarize_brand_with_llm(self, description: str) -> dict[str, Any]:
@@ -639,7 +646,113 @@ class ModelGateway:
         )
         return self._resize_if_needed(self._decode_image_payload(data), size)
 
-    def _build_image_prompt(self, snapshot: dict[str, Any]) -> str:
+    def _render_fal_flux_background(self, snapshot: dict[str, Any], size: tuple[int, int]) -> Image.Image | None:
+        """Call fal.ai Flux API for image generation (queue-based async)."""
+        if not self.runtime_config.image_api_key:
+            raise RuntimeError("fal_flux 未配置图片 API Key。请在 fal.ai 获取 Key。")
+
+        import time
+
+        model_variant = (self.runtime_config.image_model or "schnell").strip().lower()
+        model_map = {
+            "schnell": "fal-ai/flux/schnell",
+            "pro": "fal-ai/flux-pro",
+            "dev": "fal-ai/flux/dev",
+            "flux-2-pro": "fal-ai/flux-2-pro",
+        }
+        model_id = model_map.get(model_variant, model_variant)
+
+        # Determine aspect ratio from size
+        w, h = size
+        if w > h:
+            image_size = "landscape_16_9"
+        elif h > w:
+            image_size = "portrait_9_16"
+        else:
+            image_size = "square"
+
+        submit_url = f"https://queue.fal.run/{model_id}"
+        payload: dict[str, Any] = {
+            "prompt": self._build_image_prompt(snapshot),
+            "image_size": image_size,
+            "num_images": 1,
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Key {self.runtime_config.image_api_key}",
+        }
+
+        # Submit to queue
+        submit_data = self._request_json(
+            url=submit_url,
+            payload=payload,
+            headers=headers,
+            timeout_seconds=self.runtime_config.image_timeout_seconds,
+        )
+
+        # If response has images directly (schnell is often sync)
+        images = submit_data.get("images") or submit_data.get("data")
+        if isinstance(images, list) and images:
+            url = images[0].get("url") if isinstance(images[0], dict) else None
+            if url:
+                return self._resize_if_needed(self._download_image_from_url(url, self.runtime_config.image_timeout_seconds), size)
+
+        # Queue-based: poll status_url
+        status_url = submit_data.get("status_url") or submit_data.get("request_url")
+        if not status_url:
+            raise RuntimeError("fal.ai 未返回 status_url，无法轮询结果")
+
+        poll_headers = {"Authorization": f"Key {self.runtime_config.image_api_key}"}
+        for _ in range(60):  # max 60 polls, ~2 minutes
+            time.sleep(2)
+            req = request.Request(url=status_url, headers=poll_headers, method="GET")
+            with request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+            status = result.get("status", "")
+            if status == "COMPLETED" or result.get("images"):
+                images = result.get("images") or result.get("data", [])
+                if isinstance(images, list) and images:
+                    url = images[0].get("url") if isinstance(images[0], dict) else None
+                    if url:
+                        return self._resize_if_needed(
+                            self._download_image_from_url(url, self.runtime_config.image_timeout_seconds), size
+                        )
+                raise RuntimeError("fal.ai 返回 COMPLETED 但无图片 URL")
+            if status in ("FAILED", "CANCELLED"):
+                raise RuntimeError(f"fal.ai 生成失败: {result.get('error', status)}")
+
+        raise RuntimeError("fal.ai 生成超时（2分钟）")
+
+    def _render_gpt_image_background(self, snapshot: dict[str, Any], size: tuple[int, int]) -> Image.Image | None:
+        """Call OpenAI GPT-Image-1 API (or compatible proxy) for image generation."""
+        if not self.runtime_config.image_api_key:
+            raise RuntimeError("gpt_image 未配置图片 API Key。")
+
+        base_url = (self.runtime_config.image_api_url or "").strip().rstrip("/")
+        if not base_url:
+            base_url = "https://api.openai.com/v1"
+        url = base_url.rstrip("/")
+        if not url.endswith("/images/generations"):
+            url = url + "/images/generations"
+
+        w, h = size
+        size_str = "1024x1024"
+        if w > h:
+            size_str = "1536x1024"
+        elif h > w:
+            size_str = "1024x1536"
+
+        payload = {
+            "model": self.runtime_config.image_model or "gpt-image-1",
+            "prompt": self._build_image_prompt(snapshot),
+            "size": size_str,
+            "quality": "medium",
+            "n": 1,
+        }
+        headers = self._build_auth_headers(self.runtime_config.image_api_key, self.runtime_config.image_api_key_header)
+        data = self._request_json(url=url, payload=payload, headers=headers, timeout_seconds=self.runtime_config.image_timeout_seconds)
+        return self._resize_if_needed(self._decode_image_payload(data), size)
         product_name = str(snapshot.get("product_name") or "广告材料铝材")
         selling_points = "、".join(snapshot.get("selling_points", [])[:2]) or "耐腐蚀、高强度"
         style_keywords = "、".join(snapshot.get("style_keywords", [])[:3]) or "工业简洁、金属质感、高级感"
@@ -716,9 +829,33 @@ class ModelGateway:
         return resized
 
     def _download_image_from_url(self, url: str, timeout_seconds: int) -> Image.Image:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise RuntimeError(f"Unsupported URL scheme: {parsed.scheme}")
+        if parsed.hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"):
+            # Allow local URLs only for source image references from our own server
+            if "/storage/" not in parsed.path:
+                raise RuntimeError("Blocked download from local/private address")
+        # Block private IP ranges (10.x, 172.16-31.x, 192.168.x)
+        import ipaddress
+        try:
+            ip = ipaddress.ip_address(parsed.hostname or "")
+            if ip.is_private and "/storage/" not in parsed.path:
+                raise RuntimeError("Blocked download from private IP address")
+        except ValueError:
+            pass  # hostname is a domain name, not an IP
+
+        max_size = 50 * 1024 * 1024  # 50MB limit
         req = request.Request(url=url, headers={"User-Agent": "ecom-art-agent/0.4"})
         with request.urlopen(req, timeout=timeout_seconds) as response:
-            raw = response.read()
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > max_size:
+                raise RuntimeError(f"Image too large: {content_length} bytes")
+            raw = response.read(max_size + 1)
+            if len(raw) > max_size:
+                raise RuntimeError("Image exceeds 50MB size limit")
         return Image.open(io.BytesIO(raw)).convert("RGBA")
 
     def _decode_image_payload(self, payload: dict[str, Any]) -> Image.Image:
@@ -1026,3 +1163,84 @@ class ModelGateway:
 
     def _contains_latin_letters(self, value: str) -> bool:
         return bool(re.search(r"[a-zA-Z]{3,}", value or ""))
+
+    # ------------------------------------------------------------------
+    # v0.5: Multi-platform copy generation
+    # ------------------------------------------------------------------
+
+    def generate_multi_platform_copy(
+        self,
+        *,
+        product_name: str,
+        scene_description: str = "",
+        selling_points: list[str] | None = None,
+        platforms: list[str] | None = None,
+    ) -> dict[str, str]:
+        """Generate marketing copy for multiple social media platforms.
+
+        Returns dict mapping platform name to copy text.
+        """
+        target_platforms = platforms or ["Instagram", "TikTok", "Facebook", "X", "Pinterest"]
+        points_text = "、".join(selling_points) if selling_points else "高品质"
+
+        # Try LLM first
+        if self.runtime_config and self.runtime_config.llm_provider not in ("local_demo", ""):
+            try:
+                return self._generate_copy_with_llm(
+                    product_name=product_name,
+                    scene_description=scene_description,
+                    points_text=points_text,
+                    platforms=target_platforms,
+                )
+            except Exception:
+                logger.exception("LLM copy generation failed, using template fallback")
+
+        # Template fallback
+        result: dict[str, str] = {}
+        for platform in target_platforms:
+            result[platform] = self._template_copy(platform, product_name, scene_description, points_text)
+        return result
+
+    def _generate_copy_with_llm(
+        self,
+        *,
+        product_name: str,
+        scene_description: str,
+        points_text: str,
+        platforms: list[str],
+    ) -> dict[str, str]:
+        """Use LLM to generate platform-specific copy."""
+        platform_list = "、".join(platforms)
+        system_prompt = (
+            "你是一位专业的跨境电商社媒文案专家。根据产品信息，为每个平台生成适合的营销文案。"
+            "每个平台的文案风格要符合该平台的用户习惯。"
+            "返回JSON格式：{\"平台名\": \"文案内容\"}"
+        )
+        user_prompt = (
+            f"产品：{product_name}\n"
+            f"场景：{scene_description}\n"
+            f"卖点：{points_text}\n"
+            f"目标平台：{platform_list}\n"
+            f"请为每个平台生成一段营销文案（含hashtag），返回JSON。"
+        )
+
+        reply = self._chat_completion(system_prompt, user_prompt)
+        if reply:
+            import json
+            try:
+                return json.loads(reply)
+            except json.JSONDecodeError:
+                logger.warning("LLM returned non-JSON copy, using as-is")
+
+        return {p: reply or "" for p in platforms}
+
+    def _template_copy(self, platform: str, product_name: str, scene: str, points: str) -> str:
+        """Generate template-based copy for a platform."""
+        templates = {
+            "Instagram": f"✨ {product_name} — {points}\n\n{scene}\n\n#homedecor #bathroom #design #interiordesign",
+            "TikTok": f"🔥 {product_name} | {points} | {scene} #fyp #homedecor #bathroom",
+            "Facebook": f"Discover our {product_name}! {points}. {scene}\n\nShop now 👉 Link in bio",
+            "X": f"{product_name} — {points}. {scene} #design #bathroom",
+            "Pinterest": f"{product_name} | {points} | {scene} | Modern Bathroom Ideas",
+        }
+        return templates.get(platform, f"{product_name} — {points}")

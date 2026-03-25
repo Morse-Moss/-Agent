@@ -8,7 +8,7 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..core.security import mask_secret, xor_cipher, xor_decipher
+from ..core.security import decrypt_secret, encrypt_secret, mask_secret
 from ..models import SystemSetting
 
 SourceType = Literal["env", "db", "default", "unset"]
@@ -73,13 +73,13 @@ class SystemSettingsService:
             return env_value, "env"
         setting = self._get_setting(env_name)
         if setting and setting.key_value:
-            return xor_decipher(setting.key_value), "db"
+            return decrypt_secret(setting.key_value), "db"
         return None, "unset"
 
     def write_secret(self, field_name: str, value: str) -> None:
         env_name = SECRET_KEYS[field_name]
         setting = self._get_or_create_setting(env_name)
-        setting.key_value = xor_cipher(value)
+        setting.key_value = encrypt_secret(value)
 
     def read_provider_value(self, field_name: str) -> tuple[str, SourceType]:
         env_name, default_value = PROVIDER_KEYS[field_name]
@@ -165,7 +165,7 @@ class SystemSettingsService:
                 secret_field = "llm_api_key" if scope == "llm" else "image_api_key"
                 effective_api_key, _ = self.read_secret_raw(secret_field)
             if effective_api_key:
-                encrypted_api_key = xor_cipher(effective_api_key)
+                encrypted_api_key = encrypt_secret(effective_api_key)
 
         presets.append(
             {
@@ -196,7 +196,7 @@ class SystemSettingsService:
             self.write_provider_value("llm_api_key_header", str(preset.get("api_key_header", "Authorization")))
             encrypted_api_key = str(preset.get("encrypted_api_key", ""))
             if encrypted_api_key:
-                self.write_secret("llm_api_key", xor_decipher(encrypted_api_key))
+                self.write_secret("llm_api_key", decrypt_secret(encrypted_api_key))
             return
 
         self.write_provider_value("image_provider", str(preset.get("provider", "")))
@@ -206,7 +206,7 @@ class SystemSettingsService:
         self.write_provider_value("image_api_key_header", str(preset.get("api_key_header", "Authorization")))
         encrypted_api_key = str(preset.get("encrypted_api_key", ""))
         if encrypted_api_key:
-            self.write_secret("image_api_key", xor_decipher(encrypted_api_key))
+            self.write_secret("image_api_key", decrypt_secret(encrypted_api_key))
 
     def delete_provider_preset(self, *, scope: PresetScope, preset_name: str) -> dict[str, list[dict[str, Any]]]:
         store = self._load_preset_store()

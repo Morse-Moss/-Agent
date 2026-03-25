@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, Empty, Popconfirm, Select, Space, Typography, message } from "antd";
+import { Button, Card, Empty, Pagination, Popconfirm, Select, Space, Typography, message } from "antd";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { StatusTag } from "../components/StatusTag";
@@ -27,6 +28,8 @@ export function ProjectsPage(): JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const currentFilter = searchParams.get("status") ?? "";
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 12;
 
   const query = useQuery({
     queryKey: ["projects", currentFilter],
@@ -73,8 +76,9 @@ export function ProjectsPage(): JSX.Element {
       </Card>
 
       {query.data && query.data.length > 0 ? (
-        <div className="project-grid">
-          {query.data.map((project) => (
+        <>
+          <div className="project-grid">
+            {query.data.slice((currentPage - 1) * pageSize, currentPage * pageSize).map((project) => (
             <Card hoverable className="project-card" key={project.id}>
               <div className="project-cover">
                 {project.cover_asset_path ? (
@@ -135,7 +139,19 @@ export function ProjectsPage(): JSX.Element {
               </div>
             </Card>
           ))}
-        </div>
+          </div>
+          {query.data.length > pageSize && (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
+              <Pagination
+                current={currentPage}
+                pageSize={pageSize}
+                total={query.data.length}
+                onChange={(page) => setCurrentPage(page)}
+                showSizeChanger={false}
+              />
+            </div>
+          )}
+        </>
       ) : (
         <Card className="surface-card">
           {query.isLoading ? (

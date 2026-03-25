@@ -52,7 +52,13 @@ class StorageService:
         }
 
     def absolute_path(self, relative_path: str) -> Path:
-        return self.root / relative_path
+        resolved = (self.root / relative_path).resolve()
+        # Path traversal protection: ensure resolved path stays within storage root
+        try:
+            resolved.relative_to(self.root.resolve())
+        except ValueError:
+            raise ValueError(f"Path traversal detected: {relative_path}")
+        return resolved
 
     def to_relative_path(self, absolute_path: Path) -> str:
         return absolute_path.relative_to(self.root).as_posix()

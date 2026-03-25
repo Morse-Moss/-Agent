@@ -15,8 +15,8 @@ class UserSummary(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class AuthResponse(BaseModel):
@@ -123,7 +123,7 @@ class GenerateGuideFields(BaseModel):
 
 
 class GenerateProjectRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=2000)
     guide_fields: GenerateGuideFields | None = None
     source_image_path: str | None = None
     brand_profile_id: int | None = None
@@ -246,9 +246,9 @@ class BrandProfileRead(BaseModel):
 
 
 class BrandProfileUpsertRequest(BaseModel):
-    name: str
-    description: str
-    style_summary: str | None = ""
+    name: str = Field(max_length=128)
+    description: str = Field(max_length=2000)
+    style_summary: str | None = Field(default="", max_length=1000)
     recommended_keywords: list[str] = Field(default_factory=list)
 
 
@@ -280,3 +280,94 @@ class ReadinessResponse(BaseModel):
     database: bool
     storage: bool
     frontend: bool
+
+
+# ---------------------------------------------------------------------------
+# v0.5 schemas
+# ---------------------------------------------------------------------------
+
+
+class ProductCategoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    parent_id: int | None
+    prompt_template: str
+    scene_keywords: list[str]
+    is_active: bool
+    sort_order: int
+    children: list["ProductCategoryRead"] = Field(default_factory=list)
+
+
+class ProductCategoryCreate(BaseModel):
+    name: str
+    parent_id: int | None = None
+    prompt_template: str = ""
+    scene_keywords: list[str] = Field(default_factory=list)
+    is_active: bool = True
+    sort_order: int = 0
+
+
+class ProductCategoryUpdate(BaseModel):
+    name: str | None = None
+    parent_id: int | None = None
+    prompt_template: str | None = None
+    scene_keywords: list[str] | None = None
+    is_active: bool | None = None
+    sort_order: int | None = None
+
+
+class CandidateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    source_type: str
+    file_path: str
+    is_selected: bool
+    metadata_json: dict[str, Any]
+    created_at: datetime
+
+
+class CrawlRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    source_url: str
+    source_platform: str
+    status: str
+    error_message: str
+    created_at: datetime
+
+
+class TaskRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int | None
+    entry_type: str
+    current_step: str
+    task_config_json: dict[str, Any]
+    product_category_id: int | None
+    status: str
+    created_at: datetime
+    candidates: list[CandidateRead] = Field(default_factory=list)
+    crawl_runs: list[CrawlRunRead] = Field(default_factory=list)
+
+
+class CreateTaskRequest(BaseModel):
+    entry_type: Literal["competitor_link", "white_bg_upload", "image_scene_video"]
+    source_url: str | None = None  # for competitor_link
+    product_category_id: int | None = None
+    task_config_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdvanceTaskRequest(BaseModel):
+    target_step: str | None = None  # optional explicit step, otherwise auto-advance
+    expected_step: str | None = None  # CAS guard: current step must match this value
+
+
+class SelectCandidateRequest(BaseModel):
+    candidate_id: int

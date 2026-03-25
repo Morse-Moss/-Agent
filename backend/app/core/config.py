@@ -36,7 +36,7 @@ class Settings:
             "APP_DATABASE_URL",
             "mysql+pymysql://ecom_agent:ecom_agent@127.0.0.1:3306/ecom_art_agent?charset=utf8mb4",
         )
-        self.app_name = os.getenv("APP_NAME", "电商美工 Agent")
+        self.app_name = os.getenv("APP_NAME", "电商内容Agent")
         self.api_prefix = "/api"
         self.secret_key = os.getenv("APP_SECRET_KEY", "demo-secret-change-me")
         self.token_ttl_hours = int(os.getenv("APP_TOKEN_TTL_HOURS", "12"))
@@ -49,6 +49,22 @@ class Settings:
         )
         self.allowed_origins = _split_origins(os.getenv("APP_ALLOWED_ORIGINS"))
         self.serve_frontend = _as_bool(os.getenv("APP_SERVE_FRONTEND"), default=True)
+
+        # v0.5 optional infrastructure
+        self.redis_url: str | None = os.getenv("APP_REDIS_URL")  # e.g. redis://127.0.0.1:6379
+        self.qdrant_url: str | None = os.getenv("APP_QDRANT_URL")  # e.g. http://127.0.0.1:6333
+        self.crawler_enabled = _as_bool(os.getenv("APP_CRAWLER_ENABLED"), default=False)
+
+        # Video provider (optional)
+        self.video_provider: str | None = os.getenv("APP_VIDEO_PROVIDER")
+        self.video_api_url: str | None = os.getenv("APP_VIDEO_API_URL")
+        self.video_model: str | None = os.getenv("APP_VIDEO_MODEL")
+        self.video_api_key: str | None = os.getenv("APP_VIDEO_API_KEY")
+
+        # Cutout provider (optional, default: rembg local)
+        self.cutout_provider: str = os.getenv("APP_CUTOUT_PROVIDER", "rembg")
+        self.cutout_api_url: str | None = os.getenv("APP_CUTOUT_API_URL")
+        self.cutout_api_key: str | None = os.getenv("APP_CUTOUT_API_KEY")
 
     @property
     def is_default_secret(self) -> bool:

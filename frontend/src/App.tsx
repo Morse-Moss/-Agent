@@ -2,6 +2,7 @@ import { ConfigProvider } from "antd";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { isAuthenticated } from "./lib/auth";
 import { BrandPage } from "./pages/BrandPage";
 import { CreatePage } from "./pages/CreatePage";
@@ -9,6 +10,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { WorkbenchPage } from "./pages/WorkbenchPage";
 
 function RequireAuth({ children }: { children: JSX.Element }): JSX.Element {
   if (!isAuthenticated()) {
@@ -19,7 +21,8 @@ function RequireAuth({ children }: { children: JSX.Element }): JSX.Element {
 
 export function App(): JSX.Element {
   return (
-    <ConfigProvider
+    <ErrorBoundary>
+      <ConfigProvider
       theme={{
         token: {
           colorPrimary: "#0f3d3e",
@@ -39,8 +42,9 @@ export function App(): JSX.Element {
               </RequireAuth>
             }
           >
-            <Route path="/" element={<Navigate to="/create" replace />} />
-            <Route path="/create" element={<CreatePage />} />
+            <Route path="/" element={<Navigate to="/workbench" replace />} />
+            <Route path="/workbench" element={<WorkbenchPage />} />
+            <Route path="/create" element={<Navigate to="/workbench" replace />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
             <Route path="/brand" element={<BrandPage />} />
@@ -49,5 +53,6 @@ export function App(): JSX.Element {
         </Routes>
       </BrowserRouter>
     </ConfigProvider>
+    </ErrorBoundary>
   );
 }

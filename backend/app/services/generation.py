@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -9,11 +10,13 @@ from sqlalchemy.orm import Session, selectinload
 from ..core.config import settings
 from ..models import Asset, BrandProfile, ChatMessage, Project, User, Version
 from ..schemas import GenerationResult, ProjectDetail, ProjectListItem
+from ..text_utils import looks_broken_text
 from .image_pipeline import ImagePipeline
 from .model_gateway import DemoBrandContext, ModelGateway
 
+logger = logging.getLogger(__name__)
+
 PREVIEWABLE_ASSET_TYPES = {"final_export", "composite", "background", "cutout", "source"}
-BROKEN_TEXT_TOKENS = ("锟", "\ufffd", "鏈", "宸", "褰撳", "娣", "闂")
 
 
 class ProjectService:
@@ -38,35 +41,47 @@ class ProjectService:
             statement = statement.where(Project.created_by == current_user.id)
 
         projects = list(self.db.scalars(statement))
-        result: list[ProjectListItem] = []
+
+        # Batch refresh status for all projects at once
         for project in projects:
             self._refresh_project_status(project)
+        self.db.commit()
+
+        result: list[ProjectListItem] = []
+        for project in projects:
             if status and project.status != status:
                 continue
             result.append(self._build_project_list_item(project))
 
-        self.db.commit()
         return result
 
     def create_project(self, payload: dict[str, Any], current_user: User) -> ProjectDetail:
-        brand = self._get_brand_profile(payload.get("brand_profile_id"))
-        project = Project(
-            name=payload.get("name") or payload.get("product_name") or "未命名作品",
-            page_type=payload.get("page_type") or "main_image",
-            platform=payload.get("platform") or "taobao",
-            product_name=payload.get("product_name") or "",
-            brand_profile_id=brand.id if brand else None,
-            created_by=current_user.id,
-        )
-        self.db.add(project)
-        self.db.commit()
+        try:
+            brand = self._get_brand_profile(payload.get("brand_profile_id"))
+            project = Project(
+                name=payload.get("name") or payload.get("product_name") or "未命名作品",
+                page_type=payload.get("page_type") or "main_image",
+                platform=payload.get("platform") or "taobao",
+                product_name=payload.get("product_name") or "",
+                brand_profile_id=brand.id if brand else None,
+                created_by=current_user.id,
+            )
+            self.db.add(project)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         return self.get_project_detail(project.id, current_user)
 
     def delete_project(self, project_id: int, current_user: User) -> None:
         project = self._load_project(project_id, current_user)
         file_paths = self._collect_project_asset_paths(project)
-        self.db.delete(project)
-        self.db.commit()
+        try:
+            self.db.delete(project)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
 
         for file_path in file_paths:
             self._delete_storage_file(file_path)
@@ -134,7 +149,11 @@ class ProjectService:
                 f"{index + 1}. {question}" for index, question in enumerate(questions)
             )
             assistant_message = self._add_chat_message(project.id, "assistant", content, None)
-            self.db.commit()
+            try:
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
+                raise
             project_detail = self.get_project_detail(project.id, current_user)
             return GenerationResult(
                 mode="clarify",
@@ -149,7 +168,11 @@ class ProjectService:
                 "我先继续和你确认方向。等你回复“开始生成”后，再进入出图。"
             )
             assistant_message = self._add_chat_message(project.id, "assistant", assistant_text, None)
-            self.db.commit()
+            try:
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
+                raise
             project_detail = self.get_project_detail(project.id, current_user)
             return GenerationResult(
                 mode="chat",
@@ -180,7 +203,11 @@ class ProjectService:
         assistant_message = self._add_chat_message(project.id, "assistant", assistant_text, version.id)
         user_message.version_id = version.id
         self._refresh_project_status(project)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
 
         project_detail = self.get_project_detail(project.id, current_user)
         version_detail = next(item for item in project_detail.versions if item.id == version.id)
@@ -229,7 +256,11 @@ class ProjectService:
         self._add_chat_message(project.id, "assistant", f"审核结果：{review_label}\n{review_comment}", version.id)
 
         self._refresh_project_status(project)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         return self.get_project_detail(project.id, current_user)
 
     def finalize(self, *, project_id: int, version_id: int, current_user: User) -> ProjectDetail:
@@ -248,7 +279,11 @@ class ProjectService:
             version.id,
         )
         self._refresh_project_status(project)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
         return self.get_project_detail(project.id, current_user)
 
     def derive(
@@ -440,7 +475,13 @@ class ProjectService:
     def _delete_storage_file(self, relative_path: str) -> None:
         if not relative_path:
             return
-        absolute_path = Path(settings.storage_dir) / relative_path
+        storage_root = Path(settings.storage_dir).resolve()
+        absolute_path = (storage_root / relative_path).resolve()
+        try:
+            absolute_path.relative_to(storage_root)
+        except ValueError:
+            logger.warning("Blocked path traversal attempt: %s", relative_path)
+            return
         try:
             if absolute_path.exists() and absolute_path.is_file():
                 absolute_path.unlink()
@@ -466,20 +507,11 @@ class ProjectService:
 
     def _safe_text(self, value: str | None, default: str) -> str:
         text = (value or "").strip()
-        if not text or self._looks_broken_text(text):
+        if not text or looks_broken_text(text):
             return default
         return text
 
     def _safe_keywords(self, values: list[str], default: list[str]) -> list[str]:
-        cleaned = [value.strip() for value in values if value and not self._looks_broken_text(value)]
+        cleaned = [value.strip() for value in values if value and not looks_broken_text(value)]
         return cleaned or default
 
-    def _looks_broken_text(self, value: str) -> bool:
-        text = value.strip()
-        if not text:
-            return True
-        if text.count("?") >= 2:
-            return True
-        if "\ufffd" in text:
-            return True
-        return sum(token in text for token in BROKEN_TEXT_TOKENS) >= 2

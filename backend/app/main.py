@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response, status
@@ -7,12 +8,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api.routes import auth, brand, projects, settings, upload
+from .api.routes import auth, brand, categories, crawl, knowledge, projects, settings, tasks, upload
 from .core.config import settings as app_settings
 from .db import check_database_connection, init_db
 from .schemas import ReadinessResponse
 
-app = FastAPI(title=app_settings.app_name, version="0.4.0")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title=app_settings.app_name, version="0.5.0")
 
 allow_all_origins = app_settings.allowed_origins == ["*"]
 app.add_middleware(
@@ -26,6 +33,16 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup() -> None:
+    if app_settings.is_default_secret:
+        logger.warning(
+            "APP_SECRET_KEY is using the default value. "
+            "Set a strong secret via APP_SECRET_KEY env var before deploying to production."
+        )
+    if app_settings.default_admin_password == "admin123":
+        logger.warning(
+            "Default admin password is 'admin123'. "
+            "Change it via APP_DEFAULT_ADMIN_PASSWORD env var or update after first login."
+        )
     init_db()
 
 
@@ -57,6 +74,10 @@ app.include_router(projects.router, prefix=app_settings.api_prefix)
 app.include_router(upload.router, prefix=app_settings.api_prefix)
 app.include_router(brand.router, prefix=app_settings.api_prefix)
 app.include_router(settings.router, prefix=app_settings.api_prefix)
+app.include_router(tasks.router, prefix=app_settings.api_prefix)
+app.include_router(crawl.router, prefix=app_settings.api_prefix)
+app.include_router(categories.router, prefix=app_settings.api_prefix)
+app.include_router(knowledge.router, prefix=app_settings.api_prefix)
 
 app.mount("/storage", StaticFiles(directory=app_settings.storage_dir, check_dir=False), name="storage")
 

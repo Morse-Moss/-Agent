@@ -48,7 +48,11 @@ def upsert_api_keys(
         if value is None:
             continue
         service.write_secret(field_name, value)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return get_api_keys(db)
 
 
@@ -85,7 +89,11 @@ def upsert_provider_settings(
     for field_name in PROVIDER_KEYS:
         value = values[field_name]
         service.write_provider_value(field_name, "" if value is None else str(value))
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return get_provider_settings(db)
 
 
@@ -116,7 +124,11 @@ def save_provider_preset(
         api_key=payload.api_key,
         include_api_key=payload.include_api_key,
     )
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return ProviderPresetsRead(**presets)
 
 
@@ -128,7 +140,11 @@ def apply_provider_preset(
 ) -> ProviderSettingsRead:
     service = SystemSettingsService(db)
     service.apply_provider_preset(scope=payload.scope, preset_name=payload.preset_name)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return get_provider_settings(db)
 
 
@@ -140,7 +156,11 @@ def delete_provider_preset(
 ) -> ProviderPresetsRead:
     service = SystemSettingsService(db)
     presets = service.delete_provider_preset(scope=payload.scope, preset_name=payload.preset_name)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return ProviderPresetsRead(**presets)
 
 

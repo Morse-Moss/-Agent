@@ -1,18 +1,92 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from .model_gateway import ModelGateway
 from .storage import StorageService
+
+logger = logging.getLogger(__name__)
 
 
 class ImagePipeline:
     def __init__(self, storage: StorageService, gateway: ModelGateway | None = None) -> None:
         self.storage = storage
         self.gateway = gateway
+
+    def cutout_with_provider(self, source_image_path: str, provider: str = "rembg") -> dict[str, Any]:
+        """Remove background using configured provider.
+
+        Three-tier fallback: rembg (local) → remove.bg API → NumPy.
+        """
+        if provider == "rembg":
+            result = self._cutout_rembg(source_image_path)
+            if result:
+                return result
+            logger.warning("rembg failed, falling back to NumPy cutout")
+
+        elif provider == "remove_bg":
+            result = self._cutout_remove_bg(source_image_path)
+            if result:
+                return result
+            logger.warning("remove.bg API failed, falling back to rembg")
+            result = self._cutout_rembg(source_image_path)
+            if result:
+                return result
+            logger.warning("rembg also failed, falling back to NumPy cutout")
+
+        # Final fallback: NumPy
+        return self._remove_white_background(source_image_path)
+
+    def _cutout_rembg(self, source_image_path: str) -> dict[str, Any] | None:
+        """Use rembg for local AI background removal."""
+        try:
+            from rembg import remove as rembg_remove
+        except ImportError:
+            logger.warning("rembg not installed, skipping")
+            return None
+
+        try:
+            source_path = self.storage.absolute_path(source_image_path)
+            with Image.open(source_path) as original:
+                result_image = rembg_remove(original)
+                return self.storage.save_image(result_image, bucket="processed")
+        except Exception:
+            logger.exception("rembg cutout failed for %s", source_image_path)
+            return None
+
+    def _cutout_remove_bg(self, source_image_path: str) -> dict[str, Any] | None:
+        """Use remove.bg API for cloud background removal."""
+        from ..core.config import settings
+
+        api_key = settings.cutout_api_key
+        api_url = settings.cutout_api_url or "https://api.remove.bg/v1.0/removebg"
+        if not api_key:
+            logger.warning("remove.bg API key not configured")
+            return None
+
+        try:
+            import httpx
+            source_path = self.storage.absolute_path(source_image_path)
+            with open(source_path, "rb") as f:
+                response = httpx.post(
+                    api_url,
+                    files={"image_file": f},
+                    data={"size": "auto"},
+                    headers={"X-Api-Key": api_key},
+                    timeout=60,
+                )
+            response.raise_for_status()
+            from io import BytesIO
+            result_image = Image.open(BytesIO(response.content)).convert("RGBA")
+            return self.storage.save_image(result_image, bucket="processed")
+        except Exception:
+            logger.exception("remove.bg API failed for %s", source_image_path)
+            return None
 
     def generate_assets(
         self,
@@ -33,7 +107,9 @@ class ImagePipeline:
                     "height": source_height,
                 }
             )
-            cutout_result = self._remove_white_background(source_image_path)
+            # Use provider-based cutout (rembg → remove.bg → NumPy)
+            from ..core.config import settings
+            cutout_result = self.cutout_with_provider(source_image_path, provider=settings.cutout_provider)
             assets.append({**cutout_result, "asset_type": "cutout"})
 
         background_result = self._generate_background(snapshot)
@@ -92,18 +168,24 @@ class ImagePipeline:
     def _remove_white_background(self, source_image_path: str) -> dict[str, Any]:
         source_path = self.storage.absolute_path(source_image_path)
         with Image.open(source_path).convert("RGBA") as original:
-            pixels = original.load()
-            for y in range(original.height):
-                for x in range(original.width):
-                    red, green, blue, alpha = pixels[x, y]
-                    brightness = (red + green + blue) / 3
-                    if brightness > 242 and max(red, green, blue) - min(red, green, blue) < 18:
-                        pixels[x, y] = (red, green, blue, 0)
-                    elif brightness > 228:
-                        new_alpha = max(0, min(alpha, int((255 - brightness) * 6)))
-                        pixels[x, y] = (red, green, blue, new_alpha)
+            arr = np.array(original, dtype=np.float32)
+            r, g, b, a = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2], arr[:, :, 3]
+            brightness = (r + g + b) / 3.0
+            spread = np.max(arr[:, :, :3], axis=2) - np.min(arr[:, :, :3], axis=2)
 
-            return self.storage.save_image(original, bucket="processed")
+            # Fully transparent for near-white pixels
+            mask_full = (brightness > 242) & (spread < 18)
+            # Semi-transparent for bright pixels
+            mask_semi = (~mask_full) & (brightness > 228)
+
+            new_alpha = a.copy()
+            new_alpha[mask_full] = 0
+            semi_alpha = np.clip((255 - brightness[mask_semi]) * 6, 0, a[mask_semi])
+            new_alpha[mask_semi] = semi_alpha
+
+            arr[:, :, 3] = new_alpha
+            result_image = Image.fromarray(arr.astype(np.uint8), "RGBA")
+            return self.storage.save_image(result_image, bucket="processed")
 
     def _compose_visual(
         self,
@@ -112,7 +194,11 @@ class ImagePipeline:
         background_path: str,
         cutout_path: str | None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        background = Image.open(self.storage.absolute_path(background_path)).convert("RGBA")
+        try:
+            background = Image.open(self.storage.absolute_path(background_path)).convert("RGBA")
+        except Exception:
+            logger.exception("Failed to open background image: %s", background_path)
+            raise
         composite = background.copy()
         provider_name = str(snapshot.get("image_provider_used", "")).strip().lower()
         has_cutout = bool(cutout_path)
@@ -124,7 +210,11 @@ class ImagePipeline:
             composite = reframed
 
         if cutout_path:
-            product = Image.open(self.storage.absolute_path(cutout_path)).convert("RGBA")
+            try:
+                product = Image.open(self.storage.absolute_path(cutout_path)).convert("RGBA")
+            except Exception:
+                logger.exception("Failed to open cutout image: %s", cutout_path)
+                raise
             product = self._fit_product(product, composite.size)
             shadow = self._build_shadow(product)
             paste_x = (composite.width - product.width) // 2
@@ -243,11 +333,30 @@ class ImagePipeline:
         )
 
     def _load_font(self, size: int, *, bold: bool) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-        candidates = [
-            "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc",
-            "C:/Windows/Fonts/simhei.ttf",
-            "C:/Windows/Fonts/simsun.ttc",
-        ]
+        import platform
+
+        candidates: list[str] = []
+        system = platform.system()
+        if system == "Windows":
+            candidates = [
+                "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc",
+                "C:/Windows/Fonts/simhei.ttf",
+                "C:/Windows/Fonts/simsun.ttc",
+            ]
+        elif system == "Darwin":
+            candidates = [
+                "/System/Library/Fonts/PingFang.ttc",
+                "/System/Library/Fonts/STHeiti Medium.ttc",
+                "/Library/Fonts/Arial Unicode.ttf",
+            ]
+        else:  # Linux
+            candidates = [
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+            ]
+
         for candidate in candidates:
             if Path(candidate).exists():
                 try:
@@ -255,3 +364,122 @@ class ImagePipeline:
                 except OSError:
                     continue
         return ImageFont.load_default()
+
+    # ------------------------------------------------------------------
+    # v0.5: Scene image generation (4 variants)
+    # ------------------------------------------------------------------
+
+    def generate_scene_images(
+        self,
+        *,
+        snapshot: dict[str, Any],
+        reference_image_path: str,
+        category_keywords: list[str] | None = None,
+        count: int = 4,
+    ) -> list[dict[str, Any]]:
+        """Generate multiple scene image variants using img2img.
+
+        Uses category keywords to vary the scene context.
+        """
+        assets: list[dict[str, Any]] = []
+        width, height = self._canvas_size(snapshot.get("page_type", "main_image"))
+        base_keywords = category_keywords or snapshot.get("style_keywords", [])
+
+        # Scene variations
+        scene_variants = [
+            "明亮现代风格",
+            "温馨暖色调",
+            "简约北欧风",
+            "高级灰色调",
+        ]
+
+        for i in range(min(count, len(scene_variants))):
+            variant_snapshot = {**snapshot}
+            variant_snapshot["style_keywords"] = base_keywords + [scene_variants[i]]
+            variant_snapshot["_scene_variant"] = scene_variants[i]
+
+            bg_result = self._generate_background(variant_snapshot)
+
+            # Compose with reference image
+            cutout_result = self.cutout_with_provider(reference_image_path)
+            composite_result, final_result = self._compose_visual(
+                snapshot=variant_snapshot,
+                background_path=bg_result["file_path"],
+                cutout_path=cutout_result["file_path"],
+            )
+            assets.append({**final_result, "asset_type": "scene_image", "metadata_json": {"variant": scene_variants[i]}})
+
+        return assets
+
+    # ------------------------------------------------------------------
+    # v0.5: Detail module image generation
+    # ------------------------------------------------------------------
+
+    def generate_detail_modules(
+        self,
+        *,
+        snapshot: dict[str, Any],
+        scene_image_path: str,
+    ) -> list[dict[str, Any]]:
+        """Generate detail page module images (selling points, specs, scene).
+
+        Canvas width: 790px (Taobao detail page standard).
+        """
+        assets: list[dict[str, Any]] = []
+        module_width = 790
+
+        # Module 1: Selling points
+        selling_points = snapshot.get("selling_points", ["高品质", "耐用", "美观"])[:4]
+        sp_image = self._draw_selling_points_module(module_width, selling_points, snapshot)
+        sp_result = self.storage.save_image(sp_image, bucket="exports")
+        sp_image.close()
+        assets.append({**sp_result, "asset_type": "detail_module", "metadata_json": {"module": "selling_points"}})
+
+        # Module 2: Scene showcase (resize scene image to detail width)
+        try:
+            scene_img = Image.open(self.storage.absolute_path(scene_image_path))
+            ratio = module_width / scene_img.width
+            new_height = int(scene_img.height * ratio)
+            scene_resized = scene_img.resize((module_width, new_height), Image.LANCZOS)
+            scene_result = self.storage.save_image(scene_resized, bucket="exports")
+            scene_img.close()
+            scene_resized.close()
+            assets.append({**scene_result, "asset_type": "detail_module", "metadata_json": {"module": "scene"}})
+        except Exception:
+            logger.exception("Failed to create scene detail module")
+
+        return assets
+
+    def _draw_selling_points_module(
+        self, width: int, selling_points: list[str], snapshot: dict[str, Any]
+    ) -> Image.Image:
+        """Draw a selling points module image."""
+        row_height = 120
+        padding = 40
+        height = padding * 2 + len(selling_points) * row_height + 80
+        image = Image.new("RGB", (width, height), (255, 255, 255))
+        draw = ImageDraw.Draw(image)
+
+        title_font = self._load_font(36, bold=True)
+        point_font = self._load_font(24, bold=False)
+
+        # Title
+        product_name = snapshot.get("product_name", "产品")
+        draw.text((padding, padding), f"{product_name} · 核心卖点", font=title_font, fill=(30, 30, 30))
+
+        # Selling points with icons
+        y = padding + 80
+        for idx, point in enumerate(selling_points):
+            # Circle icon
+            cx, cy = padding + 20, y + 20
+            draw.ellipse((cx - 16, cy - 16, cx + 16, cy + 16), fill=(15, 61, 62))
+            num_font = self._load_font(18, bold=True)
+            draw.text((cx - 5, cy - 10), str(idx + 1), font=num_font, fill=(255, 255, 255))
+            # Text
+            draw.text((padding + 56, y + 6), point, font=point_font, fill=(60, 60, 60))
+            # Separator
+            if idx < len(selling_points) - 1:
+                draw.line([(padding, y + row_height - 10), (width - padding, y + row_height - 10)], fill=(230, 230, 230), width=1)
+            y += row_height
+
+        return image

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Form, Input, Select, Space, Tag, Typography, Upload, message } from "antd";
@@ -17,6 +17,7 @@ import {
   uploadImage,
 } from "../lib/api";
 import type { Asset, ProjectDetail, Version } from "../lib/types";
+import { getVersionRunInfo } from "../lib/version-utils";
 
 const WORKSPACE_STORAGE_KEY = "ecom-art-agent:create-workspace";
 
@@ -87,21 +88,6 @@ function getVersionSummary(version: Version): string {
     return promptSummary;
   }
   return version.prompt_text || "当前版本暂无摘要说明。";
-}
-
-function getVersionRunInfo(version: Version | null): { llm: string; image: string } {
-  if (!version) {
-    return { llm: "未记录", image: "未记录" };
-  }
-  const llmProvider = String(version.input_snapshot_json["llm_provider_used"] ?? "").trim();
-  const llmModel = String(version.input_snapshot_json["llm_model_used"] ?? "").trim();
-  const imageProvider = String(version.input_snapshot_json["image_provider_used"] ?? "").trim();
-  const imageModel = String(version.input_snapshot_json["image_model_used"] ?? "").trim();
-
-  return {
-    llm: llmProvider ? `${llmProvider}${llmModel ? ` / ${llmModel}` : ""}` : "未记录",
-    image: imageProvider ? `${imageProvider}${imageModel ? ` / ${imageModel}` : ""}` : "未记录",
-  };
 }
 
 function readStoredWorkspace(): StoredWorkspace | null {
@@ -219,10 +205,13 @@ export function CreatePage(): JSX.Element {
   }, [chatInput, currentProject?.id, form, selectedVersionId, sourceImagePath, uploadLabel]);
 
   const versions = currentProject?.versions ?? [];
-  const latestVersion = versions.at(-1) ?? null;
-  const activeVersion = (selectedVersionId ? versions.find((item) => item.id === selectedVersionId) : null) ?? latestVersion ?? null;
-  const versionList = versions.slice().reverse();
-  const activeVersionRunInfo = getVersionRunInfo(activeVersion);
+  const latestVersion = useMemo(() => versions.at(-1) ?? null, [versions]);
+  const activeVersion = useMemo(
+    () => (selectedVersionId ? versions.find((item) => item.id === selectedVersionId) : null) ?? latestVersion ?? null,
+    [versions, selectedVersionId, latestVersion],
+  );
+  const versionList = useMemo(() => versions.slice().reverse(), [versions]);
+  const activeVersionRunInfo = useMemo(() => getVersionRunInfo(activeVersion), [activeVersion]);
 
   function syncSearchParams(projectId: number | null, versionId: number | null): void {
     const nextParams = new URLSearchParams();

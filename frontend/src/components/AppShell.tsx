@@ -6,7 +6,7 @@ import { clearAuthToken } from "../lib/auth";
 const { Header, Sider, Content } = Layout;
 
 const navigationItems = [
-  { key: "/create", label: <Link to="/create">创作工作台</Link> },
+  { key: "/workbench", label: <Link to="/workbench">创作工作台</Link> },
   { key: "/projects", label: <Link to="/projects">作品列表</Link> },
   { key: "/brand", label: <Link to="/brand">品牌资料</Link> },
   { key: "/settings", label: <Link to="/settings">系统设置</Link> },
@@ -15,18 +15,18 @@ const navigationItems = [
 export function AppShell(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
-  const selectedKey = location.pathname.startsWith("/projects/") ? "/projects" : location.pathname;
+  const selectedKey = location.pathname.startsWith("/projects/") ? "/projects" : location.pathname.startsWith("/workbench") ? "/workbench" : location.pathname;
 
   return (
     <Layout className="app-shell">
       <Sider className="app-sider" width={248}>
         <div className="brand-block">
-          <Typography.Text className="brand-eyebrow">E-COMMERCE VISUAL AGENT</Typography.Text>
+          <Typography.Text className="brand-eyebrow">E-COMMERCE CONTENT AGENT</Typography.Text>
           <Typography.Title level={3} className="brand-title">
-            电商美工 Agent
+            电商内容Agent
           </Typography.Title>
           <Typography.Paragraph className="brand-copy">
-            围绕主图创作、版本迭代、审核定稿和品牌资料管理的一体化工作台。
+            围绕产品内容创作、场景图生成、视频制作和多平台文案的一体化工作台。
           </Typography.Paragraph>
         </div>
         <Menu selectedKeys={[selectedKey]} items={navigationItems} theme="dark" className="app-menu" />

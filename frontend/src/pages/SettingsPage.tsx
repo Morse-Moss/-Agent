@@ -30,6 +30,8 @@ const imageProviderOptions = [
   { label: "通义千问图片（qwen_image）", value: "qwen_image" },
   { label: "智谱图片（zhipu_image）", value: "zhipu_image" },
   { label: "通用 HTTP 图片接口（generic_http）", value: "generic_http" },
+  { label: "fal.ai Flux（fal_flux）", value: "fal_flux" },
+  { label: "GPT-Image-1（gpt_image）", value: "gpt_image" },
 ];
 
 const sourceLabelMap: Record<string, string> = {
@@ -83,6 +85,39 @@ const imageQuickTemplates = [
       image_timeout_seconds: 120,
       image_api_key_header: "Authorization",
       cutout_provider: "local_demo",
+    },
+  },
+  {
+    name: "fal.ai Flux Schnell（快速低价）",
+    values: {
+      image_provider: "fal_flux",
+      image_api_url: "",
+      image_model: "schnell",
+      image_timeout_seconds: 120,
+      image_api_key_header: "Authorization",
+      cutout_provider: "rembg",
+    },
+  },
+  {
+    name: "fal.ai Flux Pro（高质量）",
+    values: {
+      image_provider: "fal_flux",
+      image_api_url: "",
+      image_model: "pro",
+      image_timeout_seconds: 120,
+      image_api_key_header: "Authorization",
+      cutout_provider: "rembg",
+    },
+  },
+  {
+    name: "GPT-Image-1（中转）",
+    values: {
+      image_provider: "gpt_image",
+      image_api_url: "",
+      image_model: "gpt-image-1",
+      image_timeout_seconds: 120,
+      image_api_key_header: "Authorization",
+      cutout_provider: "rembg",
     },
   },
 ];

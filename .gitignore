@@ -31,3 +31,12 @@ tmp/
 ~$*.docx
 transfer-package/
 backups/
+
+# Test artifacts
+backend/test_db.sqlite
+backend/test_storage/
+
+# Claude local config
+.claude/settings.local.json
+.claude/worktrees/
+.claude/plans/

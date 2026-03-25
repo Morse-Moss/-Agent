@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,8 @@ def get_brand_profile(
     _current_user=Depends(get_current_user),
 ) -> BrandProfileRead:
     brand = db.scalar(select(BrandProfile).order_by(BrandProfile.id.asc()))
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
     return BrandProfileRead.model_validate(brand)
 
 
@@ -37,7 +39,11 @@ def upsert_brand_profile(
     brand.description = payload.description
     brand.style_summary = payload.style_summary or ""
     brand.recommended_keywords = payload.recommended_keywords
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(brand)
     return BrandProfileRead.model_validate(brand)
 

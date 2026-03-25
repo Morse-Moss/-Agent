@@ -8,6 +8,7 @@ import { AssetPreview } from "../components/AssetPreview";
 import { StatusTag } from "../components/StatusTag";
 import { deriveVersion, finalizeVersion, getProject, reviewVersion } from "../lib/api";
 import type { Version } from "../lib/types";
+import { getVersionRunInfo } from "../lib/version-utils";
 
 type ActionDialogMode = "approve" | "reject" | "derive" | null;
 
@@ -22,18 +23,6 @@ const dialogHintMap: Record<Exclude<ActionDialogMode, null>, string> = {
   reject: "请输入驳回意见，这段内容会自动写回聊天区，作为下一轮修改的上下文。",
   derive: "请输入基于当前定稿版本继续延展的新方向。",
 };
-
-function getVersionRunInfo(version: Version): { llm: string; image: string } {
-  const llmProvider = String(version.input_snapshot_json["llm_provider_used"] ?? "").trim();
-  const llmModel = String(version.input_snapshot_json["llm_model_used"] ?? "").trim();
-  const imageProvider = String(version.input_snapshot_json["image_provider_used"] ?? "").trim();
-  const imageModel = String(version.input_snapshot_json["image_model_used"] ?? "").trim();
-
-  return {
-    llm: llmProvider ? `${llmProvider}${llmModel ? ` / ${llmModel}` : ""}` : "未记录",
-    image: imageProvider ? `${imageProvider}${imageModel ? ` / ${imageModel}` : ""}` : "未记录",
-  };
-}
 
 export function ProjectDetailPage(): JSX.Element {
   const navigate = useNavigate();

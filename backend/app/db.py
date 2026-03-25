@@ -9,10 +9,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from .core.config import settings
 from .core.security import hash_password
 from .db_migrations import SCHEMA_BASELINE, apply_schema_baseline
-from .models import BrandProfile, SystemSetting, User
+from .models import BrandProfile, ProductCategory, SystemSetting, User
+from .text_utils import looks_broken_text
 
 SCHEMA_VERSION = SCHEMA_BASELINE
-BROKEN_TEXT_TOKENS = ("锟", "\ufffd", "鏈", "宸", "褰撳", "娣", "闂")
 
 
 def _create_engine(database_url: str) -> Engine:
@@ -62,6 +62,7 @@ def init_db() -> None:
     with SessionLocal() as session:
         _seed_default_user(session)
         _seed_default_brand(session)
+        _seed_default_categories(session)
         _store_schema_version(session)
         session.commit()
 
@@ -114,17 +115,42 @@ def _seed_default_brand(session: Session) -> None:
 
 def _brand_profile_needs_repair(profile: BrandProfile) -> bool:
     keywords = profile.recommended_keywords or []
-    return any(_looks_broken_text(value) for value in [profile.name, profile.description, profile.style_summary, *keywords])
+    return any(looks_broken_text(value) for value in [profile.name, profile.description, profile.style_summary, *keywords])
 
 
-def _looks_broken_text(value: str | None) -> bool:
-    if value is None:
-        return True
-    text = str(value).strip()
-    if not text:
-        return True
-    if text.count("?") >= 2:
-        return True
-    if "\ufffd" in text:
-        return True
-    return sum(token in text for token in BROKEN_TEXT_TOKENS) >= 2
+def _seed_default_categories(session: Session) -> None:
+    """Seed bathroom product categories if none exist."""
+    existing = session.scalar(select(ProductCategory))
+    if existing:
+        return
+
+    # Root categories
+    washbasin = ProductCategory(
+        name="洗手盆",
+        prompt_template="一个{sub_type}洗手盆，放置在现代卫浴空间中，{scene_desc}",
+        scene_keywords=["卫浴空间", "洗手台", "镜子", "水龙头"],
+        sort_order=1,
+    )
+    bathtub = ProductCategory(
+        name="浴缸",
+        prompt_template="一个浴缸，放置在宽敞的浴室中，{scene_desc}",
+        scene_keywords=["浴室", "地砖", "淋浴", "浴帘"],
+        sort_order=2,
+    )
+    session.add_all([washbasin, bathtub])
+    session.flush()
+
+    # Washbasin sub-categories
+    sub_types = [
+        ("立柱", "立柱式洗手盆，落地安装，{scene_desc}", ["立柱", "落地", "独立式"], 1),
+        ("台上", "台上盆，安装在洗手台面上方，{scene_desc}", ["台面", "台上盆", "大理石"], 2),
+        ("挂墙", "挂墙式洗手盆，壁挂安装节省空间，{scene_desc}", ["壁挂", "挂墙", "节省空间"], 3),
+    ]
+    for name, template, keywords, order in sub_types:
+        session.add(ProductCategory(
+            name=name,
+            parent_id=washbasin.id,
+            prompt_template=template,
+            scene_keywords=keywords,
+            sort_order=order,
+        ))
